@@ -1,15 +1,20 @@
-const std = @import("std");
-const fs = std.fs;
 const File = fs.File;
+const builtin = @import("builtin");
+const fs = std.fs;
+const std = @import("std");
 
+const Allocator = @import("heap.zig").Allocator;
+const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
 const mkdtemp = @import("fs.zig").mkdtemp;
 const parse_pex_info = @import("pex_info.zig").parse;
-const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
 const venv = @import("Virtualenv.zig");
 
 pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     var timer = try std.time.Timer.start();
-    defer std.debug.print("boot_pex({s}, {s}) took {d:.3}µs\n", .{ python_exe_path, pex_path, timer.read() / 1_000 });
+    defer std.debug.print(
+        "boot_pex({s}, {s}) took {d:.3}µs\n",
+        .{ python_exe_path, pex_path, timer.read() / 1_000 },
+    );
 
     // [ ] 1. Check if current interpreter + PEX has cached venv and re-exec to it if so.
     //     + Load PEX-INFO to get: `pex_hash`.
@@ -36,9 +41,9 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     //       * `inject_env`
     // [ ] 5. Re-exec to venv.
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var alloc = Allocator(.{ .safety = true, .verbose_log = true }).init();
+    defer alloc.deinit();
+    const allocator = alloc.allocator();
 
     var venv_lines = std.mem.splitSequence(u8, venv.VIRTUALENV_PY, "\n");
     std.debug.print("Embedded virtualenv.py:\n{s}\n...\n", .{venv_lines.first()});
@@ -70,26 +75,15 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     defer allocator.free(pex_info_path);
 
     const pex_info_file = try fs.cwd().openFile(pex_info_path, .{});
+    defer pex_info_file.close();
     const pex_info_file_md = try pex_info_file.metadata();
 
     const data = try pex_info_file.readToEndAlloc(allocator, pex_info_file_md.size());
     defer allocator.free(data);
 
     const pex_info = try parse_pex_info(allocator, data);
+    defer pex_info.deinit();
     std.debug.print("Read PEX-INFO: {}\n", .{pex_info});
 
     std.debug.print("TODO: zig-boot!!: {s}\n", .{pex_path});
-
-    _ = std.fs.cwd().makeDir("/tmp/extract") catch {
-        std.debug.print("(/tmp/extract already exists)\n", .{});
-    };
-    const dest = try fs.cwd().openDir("/tmp/extract", .{});
-    std.debug.print("Opened: /tmp/extract\n", .{});
-
-    if (zip_file.entry("__main__.py")) |main| {
-        try main.extract_from_stream(zip_stream, dest);
-        std.debug.print("Extracted {s}/__main__.py to {?}\n", .{ pex_path, dest });
-    } else {
-        std.debug.print("No __main__.py entry found in {s}!\n", .{pex_path});
-    }
 }

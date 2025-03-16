@@ -46,13 +46,26 @@ fn inject(
     defer allocator.free(temp_path);
 
     var pool: std.Thread.Pool = undefined;
-    try std.Thread.Pool.init(&pool, .{ .allocator = allocator, .n_jobs = @min(zip_entries.len, std.Thread.getCpuCount() catch 1) });
+    try std.Thread.Pool.init(
+        &pool,
+        .{
+            .allocator = allocator,
+            .n_jobs = @min(zip_entries.len, std.Thread.getCpuCount() catch 1),
+        },
+    );
     defer pool.deinit();
 
     const Zip = struct {
-        fn extract(entry: pexcz.ZipFile.Entry, zip_path: []const u8, dest_dir_path: []const u8) void {
+        fn extract(
+            entry: pexcz.ZipFile.Entry,
+            zip_path: []const u8,
+            dest_dir_path: []const u8,
+        ) void {
             return entry.extract(zip_path, dest_dir_path) catch |err| {
-                std.debug.print("Failed to extract zip entry {s} from {s}: {}\n", .{ entry.name, zip_path, err });
+                std.debug.print(
+                    "Failed to extract zip entry {s} from {s}: {}\n",
+                    .{ entry.name, zip_path, err },
+                );
             };
         }
     };
@@ -71,9 +84,9 @@ fn inject(
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var alloc = pexcz.Allocator(.{ .safety = true, .verbose_log = true }).init();
+    defer alloc.deinit();
+    const allocator = alloc.allocator();
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
