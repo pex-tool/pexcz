@@ -1,0 +1,17 @@
+// See: https://github.com/ziglang/zig/blob/master/doc/build.zig.zon.md
+.{
+    .name = .pexcz,
+    .version = "0.1.0",
+    .fingerprint = 0x97ea894d71a986ac,
+
+    .minimum_zig_version = "0.14.0",
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tools",
+        "LICENSE",
+        "README.md",
+    },
+}

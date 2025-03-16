@@ -1,0 +1,32 @@
+const std = @import("std");
+
+pub const BinPath = enum { false, append, prepend };
+
+pub const InheritPath = enum { false, prefer, fallback };
+
+pub const PexInfo = struct {
+    pex_hash: []const u8,
+    distributions: std.json.ArrayHashMap([]const u8),
+    requirements: [][]const u8,
+    overridden: [][]const u8,
+    excluded: [][]const u8,
+    interpreter_constraints: [][]const u8,
+    venv_system_site_packages: bool,
+    venv_hermetic_scripts: bool,
+    venv_bin_path: ?BinPath,
+    deps_are_wheel_files: bool,
+    entry_point: []const u8,
+    inherit_path: ?InheritPath,
+    inject_python_args: [][]const u8,
+    inject_args: [][]const u8,
+    inject_env: std.json.ArrayHashMap([]const u8),
+};
+
+pub fn parse(allocator: std.mem.Allocator, data: []const u8) !std.json.Parsed(PexInfo) {
+    return std.json.parseFromSlice(
+        PexInfo,
+        allocator,
+        data,
+        .{ .ignore_unknown_fields = true },
+    );
+}

@@ -1,0 +1,14 @@
+__pycache__/
+/dist/
+
+/.mypy_cache*/
+/.pytest_cache/
+/.ruff_cache/
+
+/.venv/
+
+/.zig-cache/
+/zig-out/
+
+/python/pexcz/bin/
+/python/pexcz/lib/

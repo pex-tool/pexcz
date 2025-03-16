@@ -1,0 +1,107 @@
+[build-system]
+requires = [
+    # N.B.: The lowest version of setuptools to support pyproject.toml [project] configuration.
+    "setuptools>=61",
+    # TODO(John Sirois): Bump to 0.14.0 when it's released.
+    "ziglang==0.13.0"
+]
+build-backend = "pexcz_build"
+backend-path = ["build-system"]
+
+[project]
+name = "pexcz"
+version = "0.1.0"
+description = "Native Pex."
+readme = "README.md"
+authors = [
+    { name = "The PEX developers", email = "developers@pex-tool.org" }
+]
+requires-python = ">=2.7"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["pexcz*"]
+
+[dependency-groups]
+dev = [
+    "mypy",
+    "pex",
+    "pytest",
+    "ruff",
+    "types-setuptools"
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["I"]
+extend-safe-fixes = ["F401"]
+
+[tool.uv]
+required-version = ">=0.6"
+# TODO(John Sirois): The one case this doesn't cover is removal of the zig artifacts from
+#  python/pexcz/{bin,lib}. Currently, uv is blind to this.
+cache-keys = [
+    # Python:
+    "build-system/**",
+    "pyproject.toml",
+    "setup.py",
+    "MANIFEST.in",
+    # Zig:
+    "build.zig",
+    "build.zig.zon",
+    "src/**",
+    "tools/**",
+    { env = "PEXCZ_RELEASE_MODE" }
+]
+
+[tool.dev-cmd.commands]
+fmt = ["ruff", "format"]
+check-fmt = ["ruff", "format", "--diff"]
+
+lint = ["ruff", "check", "--fix"]
+check-lint = ["ruff", "check"]
+
+[tool.dev-cmd.commands.type-check.factors]
+py = "The Python version to type check in <major>.<minor> form; i.e.: 3.13."
+[tool.dev-cmd.commands.type-check]
+args = [
+    "mypy",
+    "--python-version", "{-py:{markers.python_version}}",
+    "--cache-dir", ".mypy_cache_{markers.python_version}",
+    "python",
+]
+
+[tool.dev-cmd.commands.test]
+args = ["pytest"]
+cwd = "python/tests"
+accepts-extra-args = true
+
+[tool.dev-cmd.commands.zig]
+args = ["zig"]
+accepts-extra-args = true
+
+[tool.dev-cmd.commands.package]
+env = {"PEXCZ_BUILD_TARGETS" = "All", "PEXCZ_RELEASE_MODE" = "fast"}
+args = ["uv", "build"]
+
+[tool.dev-cmd.tasks.checks]
+description = "Runs all development checks, including auto-formatting code."
+steps = [
+    "fmt",
+    "lint",
+    # Parallelizing the type checks and test is safe (they don't modify files), and it nets a ~3x
+    # speedup over running them all serially.
+    ["type-check-py3.{8..13}", "test"],
+]
+
+[tool.dev-cmd.tasks.ci]
+description = "Runs all checks used for CI."
+# None of the CI checks modify files; so they can all be run in parallel which nets a ~1.5x speedup.
+steps = [["check-fmt", "check-lint", "type-check", "test"]]
+
+[tool.dev-cmd]
+default = "checks"
+exit-style = "immediate"
