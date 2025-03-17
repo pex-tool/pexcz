@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from os import PathLike
 from pathlib import Path
 from typing import Mapping, TypeAlias
@@ -17,8 +18,8 @@ PEXCZ_PACKAGE_DIR = Path("python") / "pexcz"
 
 
 def clean_zig_components() -> None:
-    shutil.rmtree(PEXCZ_PACKAGE_DIR / "bin")
-    shutil.rmtree(PEXCZ_PACKAGE_DIR / "lib")
+    shutil.rmtree(PEXCZ_PACKAGE_DIR / "bin", ignore_errors=True)
+    shutil.rmtree(PEXCZ_PACKAGE_DIR / "lib", ignore_errors=True)
 
 
 def build_zig_components() -> None:
@@ -26,7 +27,9 @@ def build_zig_components() -> None:
     release_mode = os.environ.get("PEXCZ_RELEASE_MODE", "off")
     subprocess.run(
         args=[
-            "zig",
+            sys.executable,
+            "-m",
+            "ziglang",
             "build",
             f"--release={release_mode}",
             "--prefix",

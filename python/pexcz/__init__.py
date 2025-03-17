@@ -1,7 +1,9 @@
+import atexit
 import functools
 import os.path
 import pkgutil
 import platform
+import shutil
 import sys
 import tempfile
 import time
@@ -130,7 +132,8 @@ def _load_pexcz():
     operating_system = OperatingSystem.current()
     arch = Arch.current()
     # TODO(John Sirois): Potentially introduce cache.
-    with tempfile.NamedTemporaryFile() as fp:
+    tmd_dir = tempfile.mkdtemp()
+    try:
         library_file_name = operating_system.library_file_name("pexcz")
         platform_id = "{arch}-{os}".format(arch=arch, os=operating_system)
         try:
@@ -141,8 +144,16 @@ def _load_pexcz():
             pexcz = pkgutil.get_data(__name__, os.path.join("lib", "native", library_file_name))
         if pexcz is None:
             raise RuntimeError(f"Pexcz is not supported on {platform}: no pexcz library found.")
-        fp.write(pexcz)
+        with open(os.path.join(tmd_dir, os.path.basename(library_file_name)), "wb") as fp:
+            fp.write(pexcz)
         return cdll.LoadLibrary(fp.name)
+    finally:
+        if WINDOWS:
+            # N.B.: Once the library is loaded on Windows, it can't be deleted:
+            # PermissionError: [WinError 5] Access is denied: 'C:...\\Temp\\tmpbyxvw46f\\pexcz.dll'
+            atexit.register(shutil.rmtree, tmd_dir)
+        else:
+            shutil.rmtree(tmd_dir)
 
 
 _pexcz = _load_pexcz()

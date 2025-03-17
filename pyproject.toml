@@ -2,8 +2,7 @@
 requires = [
     # N.B.: The lowest version of setuptools to support pyproject.toml [project] configuration.
     "setuptools>=61",
-    # TODO(John Sirois): Bump to 0.14.0 when it's released.
-    "ziglang==0.13.0"
+    "ziglang==0.14.0"
 ]
 build-backend = "pexcz_build"
 backend-path = ["build-system"]
@@ -54,7 +53,8 @@ cache-keys = [
     "build.zig.zon",
     "src/**",
     "tools/**",
-    { env = "PEXCZ_RELEASE_MODE" }
+    { env = "PEXCZ_RELEASE_MODE" },
+    { env = "PEXCZ_UV_FORCE_BUILD" }
 ]
 
 [tool.dev-cmd.commands]
