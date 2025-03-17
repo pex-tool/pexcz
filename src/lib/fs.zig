@@ -1,7 +1,28 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-fn temp_dir(allocator: std.mem.Allocator) ![]const u8 {
+const TempDir = struct {
+    path: []const u8,
+    allocator: ?std.mem.Allocator = null,
+
+    const Self = @This();
+
+    fn deinit(self: *Self) void {
+        if (self.allocator) |allocator| {
+            allocator.free(self.path);
+        }
+    }
+
+    fn join(self: Self, allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+        return try std.mem.concat(
+            allocator,
+            u8,
+            &.{ self.path, std.fs.path.sep_str, path },
+        );
+    }
+};
+
+fn temp_dir(allocator: std.mem.Allocator) !TempDir {
     // Via Python: https://docs.python.org/3/library/tempfile.html#tempfile.gettempdir
     // Return the name of the directory used for temporary files. This defines the default value
     // for the dir argument to all functions in this module.
@@ -18,12 +39,29 @@ fn temp_dir(allocator: std.mem.Allocator) ![]const u8 {
     //
     // The result of this search is cached.
     //
-    var env = try std.process.getEnvMap(allocator);
-    defer env.deinit();
-
     for ([_][]const u8{ "TMPDIR", "TEMP", "TMP" }) |key| {
-        if (env.get(key)) |tmp| {
-            return tmp;
+        if (builtin.target.os.tag == .windows) {
+            const w_key = try std.unicode.utf8ToUtf16LeAllocZ(allocator, key);
+            defer allocator.free(w_key);
+
+            var lpBuffer: [32_767:0]u16 = undefined;
+            const len = std.os.windows.GetEnvironmentVariableW(
+                w_key,
+                &lpBuffer,
+                lpBuffer.len,
+            ) catch |err| {
+                switch (err) {
+                    error.EnvironmentVariableNotFound => continue,
+                    else => return err,
+                }
+            };
+            const tmp_w = lpBuffer[0..len];
+            const tmp = try std.unicode.utf16LeToUtf8Alloc(allocator, tmp_w);
+            return TempDir{ .path = tmp, .allocator = allocator };
+        } else {
+            if (std.posix.getenv(key)) |tmp| {
+                return TempDir{ .path = std.mem.span(tmp) };
+            }
         }
     }
     const paths = res: {
@@ -35,14 +73,15 @@ fn temp_dir(allocator: std.mem.Allocator) ![]const u8 {
     };
     for (&paths) |path| {
         if (std.fs.accessAbsolute(path, .{ .mode = .read_write })) |_| {
-            return path;
+            return TempDir{ .path = path };
         } else |_| {}
     }
-    return ".";
+    return TempDir{ .path = "." };
 }
 
 pub fn mkdtemp(allocator: std.mem.Allocator) ![]const u8 {
-    const temp_dir_path = try temp_dir(allocator);
+    var td = try temp_dir(allocator);
+    defer td.deinit();
 
     const encoder = std.fs.base64_encoder;
     var rand_buf: [8]u8 = undefined;
@@ -54,11 +93,7 @@ pub fn mkdtemp(allocator: std.mem.Allocator) ![]const u8 {
             break :res engine.random();
         }).bytes(&rand_buf);
         const tmp_name = encoder.encode(&tmp_name_buf, &rand_buf);
-        const dir_path = try std.mem.concat(
-            allocator,
-            u8,
-            &.{ temp_dir_path, std.fs.path.sep_str, tmp_name },
-        );
+        const dir_path = try td.join(allocator, tmp_name);
         std.fs.cwd().makeDir(dir_path) catch |err| {
             std.debug.print(
                 "[attempt {d} of 5] Failed to create temp dir {s}: {}\n",
