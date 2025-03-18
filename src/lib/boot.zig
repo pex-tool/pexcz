@@ -5,7 +5,6 @@ const std = @import("std");
 
 const Allocator = @import("heap.zig").Allocator;
 const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
-const mkdtemp = @import("fs.zig").mkdtemp;
 const parse_pex_info = @import("pex_info.zig").parse;
 const venv = @import("Virtualenv.zig");
 
@@ -59,26 +58,7 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
         return error.PexInfoNotFound;
     };
 
-    const extract_dir_path = try mkdtemp(allocator);
-    defer allocator.free(extract_dir_path);
-    defer {
-        fs.cwd().deleteTree(extract_dir_path) catch |err| {
-            std.debug.print("Failed to clean up extra dir {s}: {}\n", .{ extract_dir_path, err });
-        };
-    }
-    var extract_dir = try fs.cwd().openDir(extract_dir_path, .{});
-    defer extract_dir.close();
-
-    try pex_info_entry.extract_from_stream(zip_stream, extract_dir);
-
-    const pex_info_path = try fs.path.join(allocator, &.{ extract_dir_path, "PEX-INFO" });
-    defer allocator.free(pex_info_path);
-
-    const pex_info_file = try fs.cwd().openFile(pex_info_path, .{});
-    defer pex_info_file.close();
-    const pex_info_file_md = try pex_info_file.metadata();
-
-    const data = try pex_info_file.readToEndAlloc(allocator, pex_info_file_md.size());
+    const data = try pex_info_entry.extract_to_slice(allocator, zip_stream);
     defer allocator.free(data);
 
     const pex_info = try parse_pex_info(allocator, data);

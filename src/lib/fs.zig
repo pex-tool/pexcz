@@ -60,7 +60,7 @@ fn temp_dir(allocator: std.mem.Allocator) !TempDir {
             return TempDir{ .path = tmp, .allocator = allocator };
         } else {
             if (std.posix.getenv(key)) |tmp| {
-                return TempDir{ .path = std.mem.span(tmp) };
+                return TempDir{ .path = tmp };
             }
         }
     }
