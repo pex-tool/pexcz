@@ -151,12 +151,13 @@ def _unload_dll(
     handle = None  # type: Optional[ctypes.wintypes.HMODULE]  # type: ignore[name-defined]
     if dll is not None:
         module_handle = ctypes.wintypes.HMODULE()  # type: ignore[attr-defined]
-        if not ctypes.windll.kernel32.GetModuleHandleExW(
+        if not ctypes.windll.kernel32.GetModuleHandleExW(  # type: ignore[attr-defined]
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, dll.boot, ctypes.pointer(module_handle)
         ):
             warnings.warn(
                 "Failed to clean up extracted dll resource at {path}: {err}".format(
-                    path=path, err=ctypes.WinError()
+                    path=path,
+                    err=ctypes.WinError(),  # type: ignore[attr-defined]
                 )
             )
         else:
@@ -168,10 +169,10 @@ def _unload_dll(
     start = time.time()
     while os.path.exists(path):
         if handle is not None:
-            if ctypes.windll.kernel32.FreeLibrary(handle):
+            if ctypes.windll.kernel32.FreeLibrary(handle):  # type: ignore[attr-defined]
                 freed = True
             elif not freed:
-                raise ctypes.WinError()
+                raise ctypes.WinError()  # type: ignore[attr-defined]
             else:
                 gc.collect()
         shutil.rmtree(os.path.dirname(path), ignore_errors=True)
@@ -228,8 +229,9 @@ def _load_pexcz():
         dll = pexcz
         return pexcz
     finally:
-        if WINDOWS:
-            # N.B.: Once the library is loaded on Windows, it can't be deleted:
+        if operating_system is WINDOWS:
+            # N.B.: Once the library is loaded on Windows, it can't be deleted without jumping
+            # through extra hoops:
             # PermissionError: [WinError 5] Access is denied: 'C:...\\Temp\\tmpbyxvw46f\\pexcz.dll'
             atexit.register(_unload_dll, library_file_path, dll)
         else:
