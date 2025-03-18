@@ -95,18 +95,50 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                         return error.ZipMismatchFlags;
                     if (local_header.crc32 != 0 and local_header.crc32 != self.entry.crc32)
                         return error.ZipMismatchCrc32;
+
+                    var extents: FileExtents = .{
+                        .uncompressed_size = local_header.uncompressed_size,
+                        .compressed_size = local_header.compressed_size,
+                        .local_file_header_offset = 0,
+                    };
                     if (local_header.extra_len > 0) {
-                        // TODO: Support Zip64.
-                        std.debug.print(
-                            "Encountered zip entry {s} with extra length {d}\n",
-                            .{ self.name, local_header.extra_len },
-                        );
-                        return error.Zip64NotSuported;
+                        var extra_buf: [std.math.maxInt(u16)]u8 = undefined;
+                        const extra = extra_buf[0..local_header.extra_len];
+
+                        {
+                            try stream.seekTo(self.entry.file_offset + @sizeOf(std.zip.LocalFileHeader) + local_header.filename_len);
+                            const len = try stream.context.reader().readAll(extra);
+                            if (len != extra.len)
+                                return error.ZipTruncated;
+                        }
+
+                        var extra_offset: usize = 0;
+                        while (extra_offset + 4 <= local_header.extra_len) {
+                            const header_id = std.mem.readInt(u16, extra[extra_offset..][0..2], .little);
+                            const data_size = std.mem.readInt(u16, extra[extra_offset..][2..4], .little);
+                            const end = extra_offset + 4 + data_size;
+                            if (end > local_header.extra_len)
+                                return error.ZipBadExtraFieldSize;
+                            const data = extra[extra_offset + 4 .. end];
+                            switch (@as(std.zip.ExtraHeader, @enumFromInt(header_id))) {
+                                .zip64_info => try readZip64FileExtents(std.zip.LocalFileHeader, local_header, &extents, data),
+                                else => {}, // ignore
+                            }
+                            extra_offset = end;
+                        }
                     }
+
+                    if (extents.compressed_size != 0 and
+                        extents.compressed_size != self.entry.compressed_size)
+                        return error.ZipMismatchCompLen;
+                    if (extents.uncompressed_size != 0 and
+                        extents.uncompressed_size != self.entry.uncompressed_size)
+                        return error.ZipMismatchUncompLen;
+
                     if (local_header.filename_len != self.entry.filename_len)
                         return error.ZipMismatchFilenameLen;
 
-                    break :res @as(u64, local_header.filename_len);
+                    break :res @as(u64, local_header.filename_len) + @as(u64, local_header.extra_len);
                 };
                 const local_data_file_offset: u64 = @as(
                     u64,
