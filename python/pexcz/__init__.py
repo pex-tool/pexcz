@@ -1,5 +1,9 @@
+from __future__ import print_function
+
 import atexit
+import ctypes
 import functools
+import gc
 import os.path
 import pkgutil
 import platform
@@ -7,8 +11,17 @@ import shutil
 import sys
 import tempfile
 import time
+import warnings
 from ctypes import cdll
-from typing import Callable  # noqa
+
+TYPING = False
+
+if TYPING:
+    from typing import Callable, Optional, Protocol  # noqa
+else:
+
+    class Protocol(object):  # type: ignore[no-redef]
+        pass
 
 
 class OperatingSystem(object):
@@ -127,33 +140,120 @@ def timed(unit):
     return wrapper
 
 
+GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS = 0x00000004
+MAX_UNLOAD_WAIT_SECS = 0.05
+
+
+def _unload_dll(
+    path,  # type: str
+    dll,  # type: Optional[Pexcz]
+):
+    handle = None  # type: Optional[ctypes.wintypes.HMODULE]  # type: ignore[name-defined]
+    if dll is not None:
+        module_handle = ctypes.wintypes.HMODULE()  # type: ignore[attr-defined]
+        if not ctypes.windll.kernel32.GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, dll.boot, ctypes.pointer(module_handle)
+        ):
+            warnings.warn(
+                "Failed to clean up extracted dll resource at {path}: {err}".format(
+                    path=path, err=ctypes.WinError()
+                )
+            )
+        else:
+            handle = module_handle
+        del dll
+
+    count = 0
+    freed = False
+    start = time.time()
+    while os.path.exists(path):
+        if handle is not None:
+            if ctypes.windll.kernel32.FreeLibrary(handle):
+                freed = True
+            elif not freed:
+                raise ctypes.WinError()
+            else:
+                gc.collect()
+        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+        if not handle:
+            break
+        elapsed = time.time() - start
+        if elapsed > MAX_UNLOAD_WAIT_SECS:
+            warnings.warn(
+                "Failed to clean up extracted dll resource at {path} after {count} attempts "
+                "spanning {elapsed:.2}s".format(path=path, count=count, elapsed=elapsed)
+            )
+            break
+        count += 1
+
+
+class Pexcz(Protocol):
+    def boot(
+        self,
+        python_exe,  # type: bytes
+        pex_file,  # type: bytes
+    ):
+        # type: (...) -> None
+        pass
+
+
 @timed(MS)
 def _load_pexcz():
+    # type: () -> Pexcz
+
     operating_system = OperatingSystem.current()
     arch = Arch.current()
-    # TODO(John Sirois): Potentially introduce cache.
-    tmd_dir = tempfile.mkdtemp()
+
+    dll = None  # type: Optional[Pexcz]
+    library_file_name = operating_system.library_file_name("pexcz")
+    tmp_dir = tempfile.mkdtemp()
+    library_file_path = os.path.join(tmp_dir, os.path.basename(library_file_name))
     try:
-        library_file_name = operating_system.library_file_name("pexcz")
         platform_id = "{arch}-{os}".format(arch=arch, os=operating_system)
         try:
             # N.B.: This is the production resource.
-            pexcz = pkgutil.get_data(__name__, os.path.join("lib", platform_id, library_file_name))
+            pexcz_data = pkgutil.get_data(
+                __name__, os.path.join("lib", platform_id, library_file_name)
+            )
         except FileNotFoundError:
             # And this is the development resource.
-            pexcz = pkgutil.get_data(__name__, os.path.join("lib", "native", library_file_name))
-        if pexcz is None:
+            pexcz_data = pkgutil.get_data(
+                __name__, os.path.join("lib", "native", library_file_name)
+            )
+        if pexcz_data is None:
             raise RuntimeError(f"Pexcz is not supported on {platform}: no pexcz library found.")
-        with open(os.path.join(tmd_dir, os.path.basename(library_file_name)), "wb") as fp:
-            fp.write(pexcz)
-        return cdll.LoadLibrary(fp.name)
+        with open(library_file_path, "wb") as fp:
+            fp.write(pexcz_data)
+        pexcz = cdll.LoadLibrary(library_file_path)  # type: Pexcz
+        dll = pexcz
+        return pexcz
     finally:
         if WINDOWS:
             # N.B.: Once the library is loaded on Windows, it can't be deleted:
             # PermissionError: [WinError 5] Access is denied: 'C:...\\Temp\\tmpbyxvw46f\\pexcz.dll'
-            atexit.register(shutil.rmtree, tmd_dir)
+            atexit.register(_unload_dll, library_file_path, dll)
         else:
-            shutil.rmtree(tmd_dir)
+
+            def warn_extracted_lib_leak(err):
+                warnings.warn(
+                    "Failed to clean up extracted library resource at {path}: {err}".format(
+                        path=library_file_path, err=err
+                    )
+                )
+
+            if sys.version_info[:2] < (2, 12):
+
+                def onerror(_func, _path, exec_info):
+                    _, err, _ = exec_info
+                    warn_extracted_lib_leak(err)
+
+                shutil.rmtree(tmp_dir, ignore_errors=False, onerror=onerror)
+            else:
+
+                def onexc(_func, _path, err):
+                    warn_extracted_lib_leak(err)
+
+                shutil.rmtree(tmp_dir, ignore_errors=False, onexc=onexc)  # type: ignore[call-arg]
 
 
 _pexcz = _load_pexcz()
