@@ -18,7 +18,11 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                 return self.extract_from_stream(zip_file.seekableStream(), dest_dir);
             }
 
-            pub fn extract_from_stream(self: @This(), stream: SeekableZipStream, dest_dir: std.fs.Dir) !void {
+            pub fn extract_from_stream(
+                self: @This(),
+                stream: SeekableZipStream,
+                dest_dir: std.fs.Dir,
+            ) !void {
                 var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
                 const crc32 = try self.entry.extract(stream, .{}, &filename_buf, dest_dir);
                 std.debug.assert(crc32 == self.entry.crc32);
@@ -34,18 +38,31 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                 local_file_header_offset: u64,
             };
 
-            fn readZip64FileExtents(comptime T: type, header: T, extents: *FileExtents, data: []u8) !void {
+            fn readZip64FileExtents(
+                comptime T: type,
+                header: T,
+                extents: *FileExtents,
+                data: []u8,
+            ) !void {
                 var data_offset: usize = 0;
                 if (isMaxInt(header.uncompressed_size)) {
                     if (data_offset + 8 > data.len)
                         return error.ZipBadCd64Size;
-                    extents.uncompressed_size = std.mem.readInt(u64, data[data_offset..][0..8], .little);
+                    extents.uncompressed_size = std.mem.readInt(
+                        u64,
+                        data[data_offset..][0..8],
+                        .little,
+                    );
                     data_offset += 8;
                 }
                 if (isMaxInt(header.compressed_size)) {
                     if (data_offset + 8 > data.len)
                         return error.ZipBadCd64Size;
-                    extents.compressed_size = std.mem.readInt(u64, data[data_offset..][0..8], .little);
+                    extents.compressed_size = std.mem.readInt(
+                        u64,
+                        data[data_offset..][0..8],
+                        .little,
+                    );
                     data_offset += 8;
                 }
 
@@ -54,13 +71,21 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                         if (isMaxInt(header.local_file_header_offset)) {
                             if (data_offset + 8 > data.len)
                                 return error.ZipBadCd64Size;
-                            extents.local_file_header_offset = std.mem.readInt(u64, data[data_offset..][0..8], .little);
+                            extents.local_file_header_offset = std.mem.readInt(
+                                u64,
+                                data[data_offset..][0..8],
+                                .little,
+                            );
                             data_offset += 8;
                         }
                         if (isMaxInt(header.disk_number)) {
                             if (data_offset + 4 > data.len)
                                 return error.ZipInvalid;
-                            const disk_number = std.mem.readInt(u32, data[data_offset..][0..4], .little);
+                            const disk_number = std.mem.readInt(
+                                u32,
+                                data[data_offset..][0..4],
+                                .little,
+                            );
                             if (disk_number != 0)
                                 return error.ZipMultiDiskUnsupported;
                             data_offset += 4;
@@ -72,7 +97,11 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                 }
             }
 
-            pub fn extract_to_slice(self: @This(), allocator: std.mem.Allocator, stream: SeekableZipStream) ![]const u8 {
+            pub fn extract_to_slice(
+                self: @This(),
+                allocator: std.mem.Allocator,
+                stream: SeekableZipStream,
+            ) ![]const u8 {
                 if (self.entry.uncompressed_size > std.math.maxInt(usize)) {
                     return error.EntryTooBig;
                 }
@@ -80,7 +109,10 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                 const local_data_header_offset: u64 = res: {
                     const local_header = blk: {
                         try stream.seekTo(self.entry.file_offset);
-                        break :blk try stream.context.reader().readStructEndian(std.zip.LocalFileHeader, .little);
+                        break :blk try stream.context.reader().readStructEndian(
+                            std.zip.LocalFileHeader,
+                            .little,
+                        );
                     };
                     if (!std.mem.eql(u8, &local_header.signature, &std.zip.local_file_header_sig))
                         return error.ZipBadFileOffset;
@@ -91,7 +123,10 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                     if (local_header.last_modification_date != self.entry.last_modification_date)
                         return error.ZipMismatchModDate;
 
-                    if (@as(u16, @bitCast(local_header.flags)) != @as(u16, @bitCast(self.entry.flags)))
+                    if (@as(u16, @bitCast(local_header.flags)) != @as(
+                        u16,
+                        @bitCast(self.entry.flags),
+                    ))
                         return error.ZipMismatchFlags;
                     if (local_header.crc32 != 0 and local_header.crc32 != self.entry.crc32)
                         return error.ZipMismatchCrc32;
@@ -106,7 +141,11 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                         const extra = extra_buf[0..local_header.extra_len];
 
                         {
-                            try stream.seekTo(self.entry.file_offset + @sizeOf(std.zip.LocalFileHeader) + local_header.filename_len);
+                            try stream.seekTo(
+                                self.entry.file_offset + @sizeOf(
+                                    std.zip.LocalFileHeader,
+                                ) + local_header.filename_len,
+                            );
                             const len = try stream.context.reader().readAll(extra);
                             if (len != extra.len)
                                 return error.ZipTruncated;
@@ -114,14 +153,27 @@ pub fn Zip(comptime SeekableZipStream: type) type {
 
                         var extra_offset: usize = 0;
                         while (extra_offset + 4 <= local_header.extra_len) {
-                            const header_id = std.mem.readInt(u16, extra[extra_offset..][0..2], .little);
-                            const data_size = std.mem.readInt(u16, extra[extra_offset..][2..4], .little);
+                            const header_id = std.mem.readInt(
+                                u16,
+                                extra[extra_offset..][0..2],
+                                .little,
+                            );
+                            const data_size = std.mem.readInt(
+                                u16,
+                                extra[extra_offset..][2..4],
+                                .little,
+                            );
                             const end = extra_offset + 4 + data_size;
                             if (end > local_header.extra_len)
                                 return error.ZipBadExtraFieldSize;
                             const data = extra[extra_offset + 4 .. end];
                             switch (@as(std.zip.ExtraHeader, @enumFromInt(header_id))) {
-                                .zip64_info => try readZip64FileExtents(std.zip.LocalFileHeader, local_header, &extents, data),
+                                .zip64_info => try readZip64FileExtents(
+                                    std.zip.LocalFileHeader,
+                                    local_header,
+                                    &extents,
+                                    data,
+                                ),
                                 else => {}, // ignore
                             }
                             extra_offset = end;
@@ -138,12 +190,12 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                     if (local_header.filename_len != self.entry.filename_len)
                         return error.ZipMismatchFilenameLen;
 
-                    break :res @as(u64, local_header.filename_len) + @as(u64, local_header.extra_len);
+                    break :res @as(u64, local_header.filename_len) + @as(
+                        u64,
+                        local_header.extra_len,
+                    );
                 };
-                const local_data_file_offset: u64 = @as(
-                    u64,
-                    self.entry.file_offset,
-                ) + @as(
+                const local_data_file_offset: u64 = @as(u64, self.entry.file_offset) + @as(
                     u64,
                     @sizeOf(std.zip.LocalFileHeader),
                 ) + local_data_header_offset;
@@ -193,7 +245,11 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                     @memcpy(filename, filename_slice);
                     break :res filename;
                 };
-                try entries_by_name.put(allocator, filename, Entry{ .name = filename, .entry = zip_entry });
+                try entries_by_name.put(
+                    allocator,
+                    filename,
+                    Entry{ .name = filename, .entry = zip_entry },
+                );
             }
             return .{ .entries_by_name = entries_by_name };
         }
