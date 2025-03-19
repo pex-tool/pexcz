@@ -24,11 +24,13 @@ include = ["pexcz*"]
 
 [dependency-groups]
 dev = [
+    "dev-cmd; python_version >= '3.8'",
     "mypy",
     "pex",
     "pytest",
     "ruff",
-    "types-setuptools"
+    "types-setuptools",
+    "ziglang==0.14.0; python_version >= '3.8'",
 ]
 
 [tool.ruff]
@@ -80,7 +82,7 @@ cwd = "python/tests"
 accepts-extra-args = true
 
 [tool.dev-cmd.commands.zig]
-args = ["zig"]
+args = ["python", "-m", "ziglang"]
 accepts-extra-args = true
 
 [tool.dev-cmd.commands.package]
