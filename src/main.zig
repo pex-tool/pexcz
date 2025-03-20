@@ -42,7 +42,7 @@ fn inject(
     const zip = try pexcz.ZipFile.init(allocator, zip_stream);
     const zip_entries = zip.entries();
 
-    const temp_path = try pexcz.fs.mkdtemp(allocator);
+    const temp_path = try pexcz.fs.mkdtemp(allocator, false);
     defer allocator.free(temp_path);
 
     var pool: std.Thread.Pool = undefined;

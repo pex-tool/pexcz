@@ -79,7 +79,36 @@ fn temp_dir(allocator: std.mem.Allocator) !TempDir {
     return TempDir{ .path = "." };
 }
 
-pub fn mkdtemp(allocator: std.mem.Allocator) ![]const u8 {
+var tempdirs = struct {
+    paths: std.ArrayList([]const u8),
+
+    const Self = @This();
+
+    fn register_cleanup(self: *Self, path: []const u8) !void {
+        self.paths.append(try self.paths.allocator.dupe(u8, path)) catch |err| {
+            std.debug.print(
+                "Failed to register temp dir {s} for cleanup at exit: {}\n",
+                .{ path, err },
+            );
+        };
+    }
+
+    fn deinit(self: Self) void {
+        for (self.paths.items) |path| {
+            defer self.paths.allocator.free(path);
+            std.fs.cwd().deleteTree(path) catch |err| {
+                std.debug.print(
+                    "Failed to cleanup temp dir {s}: {}\n",
+                    .{ path, err },
+                );
+                continue;
+            };
+        }
+        defer self.paths.deinit();
+    }
+}{ .paths = std.ArrayList([]const u8).init(std.heap.page_allocator) };
+
+pub fn mkdtemp(allocator: std.mem.Allocator, cleanup: bool) ![]const u8 {
     var td = try temp_dir(allocator);
     defer td.deinit();
 
@@ -101,7 +130,14 @@ pub fn mkdtemp(allocator: std.mem.Allocator) ![]const u8 {
             );
             continue;
         };
+        if (cleanup) {
+            try tempdirs.register_cleanup(dir_path);
+        }
         return dir_path;
     }
     return error.NonUnique;
+}
+
+pub fn cleanup_tempdirs() void {
+    tempdirs.deinit();
 }

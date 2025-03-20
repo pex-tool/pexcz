@@ -1,5 +1,4 @@
 const std = @import("std");
-const fs = std.fs;
 const File = fs.File;
 const builtin = @import("builtin");
 
@@ -7,6 +6,7 @@ const Allocator = @import("heap.zig").Allocator;
 const parse_pex_info = @import("pex_info.zig").parse;
 const venv = @import("Virtualenv.zig");
 const cache = @import("cache.zig");
+const fs = @import("fs.zig");
 
 const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
 pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
@@ -15,6 +15,8 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
         "boot_pex({s}, {s}) took {d:.3}µs\n",
         .{ python_exe_path, pex_path, timer.read() / 1_000 },
     );
+
+    defer fs.cleanup_tempdirs();
 
     // [ ] 1. Check if current interpreter + PEX has cached venv and re-exec to it if so.
     //     + Load PEX-INFO to get: `pex_hash`.

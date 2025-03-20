@@ -13,11 +13,11 @@ pub fn subdir(allocator: std.mem.Allocator, subpaths: []const []const u8) ![]con
             defer allocator.free(cache);
             break :res try std.fs.path.join(allocator, &.{ cache, "pexcz" });
         } else {
-            const tmp_cache = try fs.mkdtemp(allocator);
+            const tmp_cache = try fs.mkdtemp(allocator, true);
             defer allocator.free(tmp_cache);
             std.debug.print(
                 \\The user cache directory could not be determined, using a temporary cache dir at:
-                \\{s}
+                \\  {s}
                 \\
             ,
                 .{tmp_cache},
