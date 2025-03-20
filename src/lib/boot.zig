@@ -16,8 +16,6 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
         .{ python_exe_path, pex_path, timer.read() / 1_000 },
     );
 
-    defer fs.cleanup_tempdirs();
-
     // [ ] 1. Check if current interpreter + PEX has cached venv and re-exec to it if so.
     //     + Load PEX-INFO to get: `pex_hash`.
     // [ ] 2. Find viable interpreter for PEX to create venv with.
@@ -47,6 +45,9 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     defer alloc.deinit();
     const allocator = alloc.allocator();
 
+    var temp_dirs = fs.TempDirs.init(allocator);
+    defer temp_dirs.deinit();
+
     var venv_lines = std.mem.splitSequence(u8, venv.VIRTUALENV_PY, "\n");
     std.debug.print("Embedded virtualenv.py:\n{s}\n...\n", .{venv_lines.first()});
 
@@ -69,7 +70,7 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     std.debug.print("Read PEX-INFO: {}\n", .{pex_info});
 
     std.debug.print("TODO: zig-boot!!: {s}\n", .{pex_path});
-    const pexcz_root = try cache.root(allocator);
+    const pexcz_root = try cache.root(allocator, &temp_dirs);
     defer allocator.free(pexcz_root);
     std.debug.print("PEXCZ_ROOT: {s}\n", .{pexcz_root});
 }

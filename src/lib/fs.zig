@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const TempDir = struct {
+const TempDirRoot = struct {
     path: []const u8,
     allocator: ?std.mem.Allocator = null,
 
@@ -14,15 +14,11 @@ const TempDir = struct {
     }
 
     fn join(self: Self, allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-        return try std.mem.concat(
-            allocator,
-            u8,
-            &.{ self.path, std.fs.path.sep_str, path },
-        );
+        return try std.fs.path.join(allocator, &.{ self.path, path });
     }
 };
 
-fn temp_dir(allocator: std.mem.Allocator) !TempDir {
+fn temp_dir_root(allocator: std.mem.Allocator) !TempDirRoot {
     // Via Python: https://docs.python.org/3/library/tempfile.html#tempfile.gettempdir
     // Return the name of the directory used for temporary files. This defines the default value
     // for the dir argument to all functions in this module.
@@ -57,10 +53,10 @@ fn temp_dir(allocator: std.mem.Allocator) !TempDir {
             };
             const tmp_w = lpBuffer[0..len];
             const tmp = try std.unicode.utf16LeToUtf8Alloc(allocator, tmp_w);
-            return TempDir{ .path = tmp, .allocator = allocator };
+            return TempDirRoot{ .path = tmp, .allocator = allocator };
         } else {
             if (std.posix.getenv(key)) |tmp| {
-                return TempDir{ .path = tmp };
+                return TempDirRoot{ .path = tmp };
             }
         }
     }
@@ -73,71 +69,69 @@ fn temp_dir(allocator: std.mem.Allocator) !TempDir {
     };
     for (&paths) |path| {
         if (std.fs.accessAbsolute(path, .{ .mode = .read_write })) |_| {
-            return TempDir{ .path = path };
+            return TempDirRoot{ .path = path };
         } else |_| {}
     }
-    return TempDir{ .path = "." };
+    return TempDirRoot{ .path = "." };
 }
 
-var tempdirs = struct {
-    paths: std.ArrayList([]const u8),
+pub const TempDirs = struct {
+    const TempDir = struct {
+        path: []const u8,
+        cleanup: bool,
+    };
+
+    allocator: std.mem.Allocator,
+    temp_dirs: std.ArrayList(TempDir),
 
     const Self = @This();
 
-    fn register_cleanup(self: *Self, path: []const u8) !void {
-        self.paths.append(try self.paths.allocator.dupe(u8, path)) catch |err| {
-            std.debug.print(
-                "Failed to register temp dir {s} for cleanup at exit: {}\n",
-                .{ path, err },
-            );
-        };
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{ .allocator = allocator, .temp_dirs = .init(allocator) };
     }
 
-    fn deinit(self: Self) void {
-        for (self.paths.items) |path| {
-            defer self.paths.allocator.free(path);
-            std.fs.cwd().deleteTree(path) catch |err| {
+    pub fn mkdtemp(self: *Self, cleanup: bool) ![]const u8 {
+        var td = try temp_dir_root(self.allocator);
+        defer td.deinit();
+
+        const encoder = std.fs.base64_encoder;
+        var rand_buf: [8]u8 = undefined;
+        var tmp_name_buf: [11]u8 = undefined;
+        std.debug.assert(tmp_name_buf.len == encoder.calcSize(rand_buf.len));
+        for (0..5) |attempt| {
+            (res: {
+                var engine = std.Random.DefaultPrng.init(@abs(std.time.microTimestamp()));
+                break :res engine.random();
+            }).bytes(&rand_buf);
+            const tmp_name = encoder.encode(&tmp_name_buf, &rand_buf);
+            const dir_path = try td.join(self.allocator, tmp_name);
+            errdefer self.allocator.free(dir_path);
+            std.fs.cwd().makeDir(dir_path) catch |err| {
                 std.debug.print(
-                    "Failed to cleanup temp dir {s}: {}\n",
-                    .{ path, err },
+                    "[attempt {d} of 5] Failed to create temp dir {s}: {}\n",
+                    .{ attempt + 1, dir_path, err },
                 );
                 continue;
             };
+            try self.temp_dirs.append(TempDir{ .path = dir_path, .cleanup = cleanup });
+            return dir_path;
         }
-        defer self.paths.deinit();
+        return error.NonUnique;
     }
-}{ .paths = std.ArrayList([]const u8).init(std.heap.page_allocator) };
 
-pub fn mkdtemp(allocator: std.mem.Allocator, cleanup: bool) ![]const u8 {
-    var td = try temp_dir(allocator);
-    defer td.deinit();
-
-    const encoder = std.fs.base64_encoder;
-    var rand_buf: [8]u8 = undefined;
-    var tmp_name_buf: [11]u8 = undefined;
-    std.debug.assert(tmp_name_buf.len == encoder.calcSize(rand_buf.len));
-    for (0..5) |attempt| {
-        (res: {
-            var engine = std.Random.DefaultPrng.init(@abs(std.time.microTimestamp()));
-            break :res engine.random();
-        }).bytes(&rand_buf);
-        const tmp_name = encoder.encode(&tmp_name_buf, &rand_buf);
-        const dir_path = try td.join(allocator, tmp_name);
-        std.fs.cwd().makeDir(dir_path) catch |err| {
-            std.debug.print(
-                "[attempt {d} of 5] Failed to create temp dir {s}: {}\n",
-                .{ attempt + 1, dir_path, err },
-            );
-            continue;
-        };
-        if (cleanup) {
-            try tempdirs.register_cleanup(dir_path);
+    pub fn deinit(self: Self) void {
+        for (self.temp_dirs.items) |temp_dir| {
+            defer self.temp_dirs.allocator.free(temp_dir.path);
+            if (temp_dir.cleanup) {
+                std.fs.cwd().deleteTree(temp_dir.path) catch |err| {
+                    std.debug.print(
+                        "Failed to cleanup temp dir {s}: {}\n",
+                        .{ temp_dir.path, err },
+                    );
+                    continue;
+                };
+            }
         }
-        return dir_path;
+        self.temp_dirs.deinit();
     }
-    return error.NonUnique;
-}
-
-pub fn cleanup_tempdirs() void {
-    tempdirs.deinit();
-}
+};

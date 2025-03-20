@@ -42,9 +42,6 @@ fn inject(
     const zip = try pexcz.ZipFile.init(allocator, zip_stream);
     const zip_entries = zip.entries();
 
-    const temp_path = try pexcz.fs.mkdtemp(allocator, false);
-    defer allocator.free(temp_path);
-
     var pool: std.Thread.Pool = undefined;
     try std.Thread.Pool.init(
         &pool,
@@ -70,6 +67,9 @@ fn inject(
         }
     };
 
+    var temp_dirs = pexcz.fs.TempDirs.init(allocator);
+    defer temp_dirs.deinit();
+    const temp_path = try temp_dirs.mkdtemp(false);
     var wg = std.Thread.WaitGroup{};
     for (zip_entries) |zip_entry| {
         pool.spawnWg(&wg, Zip.extract, .{ zip_entry, pex, temp_path });

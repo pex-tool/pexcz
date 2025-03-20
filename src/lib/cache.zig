@@ -3,18 +3,17 @@ const known_folders = @import("known-folders");
 
 const fs = @import("fs.zig");
 
-pub fn root(allocator: std.mem.Allocator) ![]const u8 {
-    return subdir(allocator, &.{});
+pub fn root(allocator: std.mem.Allocator, temp_dirs: *fs.TempDirs) ![]const u8 {
+    return subdir(allocator, temp_dirs, &.{});
 }
 
-pub fn subdir(allocator: std.mem.Allocator, subpaths: []const []const u8) ![]const u8 {
+pub fn subdir(allocator: std.mem.Allocator, temp_dirs: *fs.TempDirs, subpaths: []const []const u8) ![]const u8 {
     const cache = res: {
         if (try known_folders.getPath(allocator, .cache)) |cache| {
             defer allocator.free(cache);
             break :res try std.fs.path.join(allocator, &.{ cache, "pexcz" });
         } else {
-            const tmp_cache = try fs.mkdtemp(allocator, true);
-            defer allocator.free(tmp_cache);
+            const tmp_cache = try temp_dirs.mkdtemp(true);
             std.debug.print(
                 \\The user cache directory could not be determined, using a temporary cache dir at:
                 \\  {s}
@@ -51,21 +50,29 @@ pub fn subdir(allocator: std.mem.Allocator, subpaths: []const []const u8) ![]con
 }
 
 test "cache root" {
-    const pexcz_root = try root(std.testing.allocator);
-    defer std.testing.allocator.free(pexcz_root);
+    const allocator = std.testing.allocator;
+
+    var temp_dirs = fs.TempDirs.init(allocator);
+    defer temp_dirs.deinit();
+
+    const pexcz_root = try root(allocator, &temp_dirs);
+    defer allocator.free(pexcz_root);
 }
 
 test "cache subdir" {
-    const pexcz_root = try root(std.testing.allocator);
-    defer std.testing.allocator.free(pexcz_root);
-    const expected_venvs = try std.fs.path.join(
-        std.testing.allocator,
-        &.{ pexcz_root, "venvs", "0" },
-    );
-    defer std.testing.allocator.free(expected_venvs);
+    const allocator = std.testing.allocator;
 
-    const venvs = try subdir(std.testing.allocator, &.{ "venvs", "0" });
-    defer std.testing.allocator.free(venvs);
+    var temp_dirs = fs.TempDirs.init(allocator);
+    defer temp_dirs.deinit();
+
+    const pexcz_root = try root(allocator, &temp_dirs);
+    defer allocator.free(pexcz_root);
+
+    const expected_venvs = try std.fs.path.join(allocator, &.{ pexcz_root, "venvs", "0" });
+    defer allocator.free(expected_venvs);
+
+    const venvs = try subdir(allocator, &temp_dirs, &.{ "venvs", "0" });
+    defer allocator.free(venvs);
 
     try std.testing.expectEqualSlices(u8, expected_venvs, venvs);
 }
