@@ -71,7 +71,17 @@ fn inject(
     defer temp_dirs.deinit();
     const temp_path = try temp_dirs.mkdtemp(false);
     var wg = std.Thread.WaitGroup{};
-    for (zip_entries) |zip_entry| {
+    next_entry: for (zip_entries) |zip_entry| {
+        for ([_][]const u8{ "__main__.py", ".bootstrap/", "__pex__/" }) |name| {
+            if (std.mem.eql(u8, name, zip_entry.name)) {
+                continue :next_entry;
+            }
+        }
+        for ([_][]const u8{ ".bootstrap/", "__pex__/" }) |name| {
+            if (std.mem.startsWith(u8, zip_entry.name, name)) {
+                continue :next_entry;
+            }
+        }
         pool.spawnWg(&wg, Zip.extract, .{ zip_entry, pex, temp_path });
     }
     wg.wait();
