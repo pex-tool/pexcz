@@ -80,7 +80,7 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     std.debug.assert(encoded_pex_hash_buf.len == encoder.calcSize(pex_hash_bytes.len));
     const pex_hash = encoder.encode(&encoded_pex_hash_buf, &pex_hash_bytes);
 
-    const venv_root = try cache.subdir(allocator, &temp_dirs, &.{ "venvs", "0", pex_hash });
-    defer allocator.free(venv_root);
-    std.debug.print("Venv cache root: {s}\n", .{venv_root});
+    const venv_cache_dir = try cache.subdir(allocator, &temp_dirs, &.{ "venvs", "0", pex_hash });
+    defer allocator.free(venv_cache_dir);
+    std.debug.print("Venv cache dir: {s}\n", .{venv_cache_dir});
 }
