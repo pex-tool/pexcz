@@ -70,7 +70,17 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     std.debug.print("Read PEX-INFO: {}\n", .{pex_info});
 
     std.debug.print("TODO: zig-boot!!: {s}\n", .{pex_path});
-    const pexcz_root = try cache.root(allocator, &temp_dirs);
-    defer allocator.free(pexcz_root);
-    std.debug.print("PEXCZ_ROOT: {s}\n", .{pexcz_root});
+
+    const encoder = std.fs.base64_encoder;
+    const pex_hash_bytes = @as(
+        [20]u8,
+        @bitCast(try std.fmt.parseUnsigned(u160, pex_info.value.pex_hash, 16)),
+    );
+    var encoded_pex_hash_buf: [27]u8 = undefined;
+    std.debug.assert(encoded_pex_hash_buf.len == encoder.calcSize(pex_hash_bytes.len));
+    const pex_hash = encoder.encode(&encoded_pex_hash_buf, &pex_hash_bytes);
+
+    const venv_root = try cache.subdir(allocator, &temp_dirs, &.{ "venvs", "0", pex_hash });
+    defer allocator.free(venv_root);
+    std.debug.print("Venv cache root: {s}\n", .{venv_root});
 }
