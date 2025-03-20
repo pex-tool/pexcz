@@ -43,7 +43,8 @@ pub fn build(b: *std.Build) !void {
     });
     const tool_step = b.addRunArtifact(tool);
     // TODO(John Sirois): Plumb --sha arg from a build option.
-    const output = tool_step.addOutputFileArg(VIRTUALENV_PY_RESOURCE_BASE_NAME);
+    const virtualenv_py_resource = tool_step.addOutputFileArg(VIRTUALENV_PY_RESOURCE_BASE_NAME);
+    const known_folders = b.dependency("known_folders", .{}).module("known-folders");
 
     for (target_queries) |tq| {
         const rt = b.resolveTargetQuery(tq);
@@ -53,7 +54,8 @@ pub fn build(b: *std.Build) !void {
             .target = rt,
             .optimize = optimize,
         });
-        lib.addAnonymousImport("virtualenv.py", .{ .root_source_file = output });
+        lib.addAnonymousImport("virtualenv.py", .{ .root_source_file = virtualenv_py_resource });
+        lib.addImport("known-folders", known_folders);
 
         const clib = b.addSharedLibrary(.{
             .name = "pexcz",
@@ -116,6 +118,7 @@ pub fn build(b: *std.Build) !void {
         .target = cur_tgt,
         .optimize = optimize,
     });
+    lib_unit_tests.root_module.addImport("known-folders", known_folders);
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const exe_unit_tests = b.addTest(.{

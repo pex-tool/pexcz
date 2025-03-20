@@ -1,13 +1,14 @@
+const std = @import("std");
+const fs = std.fs;
 const File = fs.File;
 const builtin = @import("builtin");
-const fs = std.fs;
-const std = @import("std");
 
 const Allocator = @import("heap.zig").Allocator;
-const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
 const parse_pex_info = @import("pex_info.zig").parse;
 const venv = @import("Virtualenv.zig");
+const cache = @import("cache.zig");
 
+const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
 pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     var timer = try std.time.Timer.start();
     defer std.debug.print(
@@ -66,4 +67,7 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     std.debug.print("Read PEX-INFO: {}\n", .{pex_info});
 
     std.debug.print("TODO: zig-boot!!: {s}\n", .{pex_path});
+    const pexcz_root = try cache.root(allocator);
+    defer allocator.free(pexcz_root);
+    std.debug.print("PEXCZ_ROOT: {s}\n", .{pexcz_root});
 }
