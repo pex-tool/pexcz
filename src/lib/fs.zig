@@ -79,6 +79,13 @@ pub const TempDirs = struct {
     const TempDir = struct {
         path: []const u8,
         cleanup: bool,
+
+        fn deinit(self: @This(), allocator: std.mem.Allocator) !void {
+            defer allocator.free(self.path);
+            if (self.cleanup) {
+                return std.fs.cwd().deleteTree(self.path);
+            }
+        }
     };
 
     allocator: std.mem.Allocator,
@@ -121,16 +128,10 @@ pub const TempDirs = struct {
 
     pub fn deinit(self: Self) void {
         for (self.temp_dirs.items) |temp_dir| {
-            defer self.temp_dirs.allocator.free(temp_dir.path);
-            if (temp_dir.cleanup) {
-                std.fs.cwd().deleteTree(temp_dir.path) catch |err| {
-                    std.debug.print(
-                        "Failed to cleanup temp dir {s}: {}\n",
-                        .{ temp_dir.path, err },
-                    );
-                    continue;
-                };
-            }
+            temp_dir.deinit(self.allocator) catch |err| {
+                std.debug.print("Failed to cleanup temp dir {}: {}\n", .{ temp_dir, err });
+                continue;
+            };
         }
         self.temp_dirs.deinit();
     }
