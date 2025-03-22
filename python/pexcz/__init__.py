@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import print_function
 
 import atexit
@@ -102,23 +103,23 @@ class TimeUnit(object):
     def __init__(
         self,
         name,  # type: str
-        divisor,  # type: int
+        multiplier,  # type: int
     ):
         # type: (...) -> None
         self._name = name
-        self._divisor = divisor * 1.0
+        self._multiplier = multiplier
 
     def elapsed(self, start):
-        # type: (int) -> float
-        return (time.perf_counter_ns() - start) / self._divisor
+        # type: (float) -> float
+        return (time.time() - start) * self._multiplier
 
     def __str__(self):
         # type: () -> str
         return self._name
 
 
-MS = TimeUnit("ms", 1_000_000)
-US = TimeUnit("µs", 1_000)
+MS = TimeUnit("ms", 1_000)
+US = TimeUnit("µs", 1_000_000)
 
 
 def timed(unit):
@@ -126,7 +127,7 @@ def timed(unit):
     def wrapper(func):
         @functools.wraps(func)
         def wrapped(*args, **kwargs):
-            start = time.perf_counter_ns()
+            start = time.time()
             try:
                 return func(*args, **kwargs)
             finally:

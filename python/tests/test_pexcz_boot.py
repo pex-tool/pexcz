@@ -10,13 +10,13 @@ def test_boot(tmp_path: Path) -> None:
         args=["pex", "cowsay", "-c", "cowsay", "-o", pex, "--venv", "prepend"], check=True
     )
 
-    start = time.perf_counter_ns()
+    start = time.time()
     try:
         from pexcz import boot
 
         boot(str(pex))
     finally:
         print(
-            f"pexcz.boot import and run took {(time.perf_counter_ns() - start) / 1_000_000.0:.3}ms",
+            f"pexcz.boot import and run took {(time.time() - start) * 1_000:.3}ms",
             file=sys.stderr,
         )
