@@ -44,37 +44,37 @@ pub const CacheDir = struct {
         return self.ensureLock(.exclusive);
     }
 
-    fn exists(self: Self) !bool {
-        var dir = std.fs.cwd().openDir(self.path, .{}) catch |err| res: {
+    fn open(self: Self, options: std.fs.Dir.OpenOptions) !?std.fs.Dir {
+        return std.fs.cwd().openDir(self.path, options) catch |err| res: {
             if (err != error.FileNotFound) {
                 return err;
             }
             break :res null;
         };
-        if (dir) |*d| {
-            d.close();
-            return true;
-        }
-        return false;
     }
 
-    pub fn createAtomic(self: *Self, work: fn (work_dir: std.fs.Dir) anyerror!void) !void {
+    pub fn createAtomic(
+        self: *Self,
+        work: fn (work_dir: std.fs.Dir) anyerror!void,
+        options: std.fs.Dir.OpenOptions,
+    ) !std.fs.Dir {
         // We use classic double-check locking to avoid the write lock when possible.
-        if (try self.exists()) {
-            return;
+        if (try self.open(options)) |dir| {
+            return dir;
         }
 
         const newly_locked = try self.writeLock();
         defer _ = if (newly_locked) self.unlock() else false;
 
-        if (try self.exists()) {
-            return;
+        if (try self.open(options)) |dir| {
+            return dir;
         }
 
         const work_path = try self.lockPath(".work");
         defer self.allocator.free(work_path);
 
-        const work_dir = try std.fs.cwd().makeOpenPath(work_path, .{});
+        var work_dir = try std.fs.cwd().makeOpenPath(work_path, .{});
+        defer work_dir.close();
         errdefer work_dir.deleteTree(work_path) catch |err| {
             std.debug.print(
                 "Failed to clean up temporary work dir {s} on failed attempt to atomically " ++
@@ -85,6 +85,7 @@ pub const CacheDir = struct {
 
         try work(work_dir);
         try work_dir.rename(work_path, self.path);
+        return work_dir.openDir(self.path, options);
     }
 
     pub fn unlock(self: *Self) bool {
@@ -138,9 +139,15 @@ pub const CacheDir = struct {
             if (subpaths.len == 1) {
                 break :res try std.fs.path.join(self.allocator, &.{ self.path, subpaths[0] });
             } else if (subpaths.len == 2) {
-                break :res try std.fs.path.join(self.allocator, &.{ self.path, subpaths[0], subpaths[1] });
+                break :res try std.fs.path.join(
+                    self.allocator,
+                    &.{ self.path, subpaths[0], subpaths[1] },
+                );
             } else if (subpaths.len == 3) {
-                break :res try std.fs.path.join(self.allocator, &.{ self.path, subpaths[0], subpaths[1], subpaths[2] });
+                break :res try std.fs.path.join(
+                    self.allocator,
+                    &.{ self.path, subpaths[0], subpaths[1], subpaths[2] },
+                );
             }
 
             var total_len = self.path.len;

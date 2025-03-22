@@ -92,6 +92,7 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
             defer proof.close();
         }
     };
-    _ = try venv_cache_dir.createAtomic(Fn.touch);
-    std.debug.print("Write locked venv cache dir: {s}\n", .{venv_cache_dir.path});
+    var dir = try venv_cache_dir.createAtomic(Fn.touch, .{});
+    defer dir.close();
+    std.debug.print("Write locked venv cache dir {s}: {}\n", .{ venv_cache_dir.path, dir });
 }
