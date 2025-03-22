@@ -44,38 +44,53 @@ pub const CacheDir = struct {
         return self.ensureLock(.exclusive);
     }
 
-    pub fn createLocked(self: *Self, work: fn (work_dir: std.fs.Dir) anyerror!void) !void {
+    fn exists(self: Self) !bool {
         var dir = std.fs.cwd().openDir(self.path, .{}) catch |err| res: {
-            switch (err) {
-                error.FileNotFound => {
-                    _ = try self.writeLock();
-                    break :res std.fs.cwd().openDir(self.path, .{}) catch |err2| {
-                        switch (err2) {
-                            error.FileNotFound => {
-                                const work_path = try self.lockPath(".work");
-                                defer self.allocator.free(work_path);
-
-                                const work_dir = try std.fs.cwd().makeOpenPath(work_path, .{});
-                                try work(work_dir);
-                                try work_dir.rename(work_path, self.path);
-                                break :res null;
-                            },
-                            else => return err2,
-                        }
-                    };
-                },
-                else => return err,
+            if (err != error.FileNotFound) {
+                return err;
             }
+            break :res null;
         };
         if (dir) |*d| {
             d.close();
+            return true;
         }
+        return false;
+    }
+
+    pub fn createAtomic(self: *Self, work: fn (work_dir: std.fs.Dir) anyerror!void) !void {
+        // We use classic double-check locking to avoid the write lock when possible.
+        if (try self.exists()) {
+            return;
+        }
+
+        const newly_locked = try self.writeLock();
+        defer _ = if (newly_locked) self.unlock() else false;
+
+        if (try self.exists()) {
+            return;
+        }
+
+        const work_path = try self.lockPath(".work");
+        defer self.allocator.free(work_path);
+
+        const work_dir = try std.fs.cwd().makeOpenPath(work_path, .{});
+        errdefer work_dir.deleteTree(work_path) catch |err| {
+            std.debug.print(
+                "Failed to clean up temporary work dir {s} on failed attempt to atomically " ++
+                    "create dir {s}: {}\n",
+                .{ work_path, self.path, err },
+            );
+        };
+
+        try work(work_dir);
+        try work_dir.rename(work_path, self.path);
     }
 
     pub fn unlock(self: *Self) bool {
-        if (self.lock) |*lock| {
+        if (self.lock) |lock| {
             lock.unlock();
-            lock = null;
+            self.lock = null;
             return true;
         }
         return false;
