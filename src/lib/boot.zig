@@ -86,6 +86,12 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     var venv_cache_dir = try pexcz_root.join(&.{ "venvs", "0", pex_hash });
     defer venv_cache_dir.deinit(.{});
 
-    _ = try venv_cache_dir.writeLock();
+    const Fn = struct {
+        fn touch(work_dir: std.fs.Dir) !void {
+            const proof = try work_dir.createFile("proof", .{});
+            defer proof.close();
+        }
+    };
+    _ = try venv_cache_dir.createLocked(Fn.touch);
     std.debug.print("Write locked venv cache dir: {s}\n", .{venv_cache_dir.path});
 }

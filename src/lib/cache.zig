@@ -31,6 +31,7 @@ pub const CacheDir = struct {
 
     allocator: std.mem.Allocator,
     path: []const u8,
+    root: bool,
     lock: ?Lock = null,
 
     const Self = @This();
@@ -43,6 +44,34 @@ pub const CacheDir = struct {
         return self.ensureLock(.exclusive);
     }
 
+    pub fn createLocked(self: *Self, work: fn (work_dir: std.fs.Dir) anyerror!void) !void {
+        var dir = std.fs.cwd().openDir(self.path, .{}) catch |err| res: {
+            switch (err) {
+                error.FileNotFound => {
+                    _ = try self.writeLock();
+                    break :res std.fs.cwd().openDir(self.path, .{}) catch |err2| {
+                        switch (err2) {
+                            error.FileNotFound => {
+                                const work_path = try self.lockPath(".work");
+                                defer self.allocator.free(work_path);
+
+                                const work_dir = try std.fs.cwd().makeOpenPath(work_path, .{});
+                                try work(work_dir);
+                                try work_dir.rename(work_path, self.path);
+                                break :res null;
+                            },
+                            else => return err2,
+                        }
+                    };
+                },
+                else => return err,
+            }
+        };
+        if (dir) |*d| {
+            d.close();
+        }
+    }
+
     pub fn unlock(self: *Self) bool {
         if (self.lock) |*lock| {
             lock.unlock();
@@ -52,15 +81,34 @@ pub const CacheDir = struct {
         return false;
     }
 
+    fn lockPath(self: Self, name: []const u8) ![]const u8 {
+        if (self.root) {
+            return try std.fs.path.join(self.allocator, &.{ self.path, name });
+        }
+
+        const lock_name = try std.fmt.allocPrint(
+            self.allocator,
+            ".{s}{s}",
+            .{ std.fs.path.basename(self.path), name },
+        );
+        if (std.fs.path.dirname(self.path)) |parent_dir| {
+            defer self.allocator.free(lock_name);
+            return try std.fs.path.join(self.allocator, &.{ parent_dir, lock_name });
+        } else {
+            return lock_name;
+        }
+    }
+
     fn ensureLock(self: *Self, mode: std.fs.File.Lock) !bool {
         if (self.lock) |*lock| {
             return lock.lock(mode);
         }
 
-        const path = try std.fs.path.join(self.allocator, &.{ self.path, ".lock" });
+        const path = try self.lockPath(".lock");
         defer self.allocator.free(path);
-
-        try std.fs.cwd().makePath(self.path);
+        if (std.fs.path.dirname(path)) |parent_dir| {
+            try std.fs.cwd().makePath(parent_dir);
+        }
 
         const file = try std.fs.cwd().createFile(path, .{ .lock = mode });
         self.lock = .{ .file = file, .mode = mode };
@@ -68,6 +116,9 @@ pub const CacheDir = struct {
     }
 
     pub fn join(self: Self, subpaths: []const []const u8) !Self {
+        if (subpaths.len == 0) {
+            return self;
+        }
         const cache_dir_path = res: {
             if (subpaths.len == 1) {
                 break :res try std.fs.path.join(self.allocator, &.{ self.path, subpaths[0] });
@@ -87,7 +138,7 @@ pub const CacheDir = struct {
             try paths.appendSlice(subpaths);
             break :res try std.fs.path.join(self.allocator, paths.items);
         };
-        return .{ .allocator = self.allocator, .path = cache_dir_path };
+        return .{ .allocator = self.allocator, .path = cache_dir_path, .root = false };
     }
 
     pub const DeinitOptions = struct {
@@ -132,7 +183,7 @@ pub fn root(
             break :res cache_path;
         }
     };
-    var cache: CacheDir = .{ .allocator = allocator, .path = cache_path };
+    var cache: CacheDir = .{ .allocator = allocator, .path = cache_path, .root = true };
     errdefer cache.deinit(.{});
     _ = try if (options.exclusive) cache.writeLock() else cache.readLock();
     return cache;
