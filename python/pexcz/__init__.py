@@ -276,7 +276,6 @@ def boot(pex):
             "{name}={value}".format(name=name, value=value).encode("utf-8") + b"\x00"
         )
     array_of_strings[len(os.environ)] = None
+    environ = ctypes.cast(array_of_strings, ctypes.POINTER(array_of_strings_type))
 
-    _pexcz.boot(
-        python_exe, pex_file, ctypes.cast(array_of_strings, ctypes.POINTER(array_of_strings_type))
-    )
+    _pexcz.boot(python_exe, pex_file, environ)
