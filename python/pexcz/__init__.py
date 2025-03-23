@@ -268,4 +268,15 @@ def boot(pex):
 
     python_exe = sys.executable.encode("utf-8") + b"\x00"
     pex_file = pex.encode("utf-8") + b"\x00"
-    _pexcz.boot(python_exe, pex_file)
+
+    array_of_strings_type = ctypes.c_char_p * (len(os.environ) + 1)
+    array_of_strings = array_of_strings_type()
+    for index, (name, value) in enumerate(os.environ.items()):
+        array_of_strings[index] = (
+            "{name}={value}".format(name=name, value=value).encode("utf-8") + b"\x00"
+        )
+    array_of_strings[len(os.environ)] = None
+
+    _pexcz.boot(
+        python_exe, pex_file, ctypes.cast(array_of_strings, ctypes.POINTER(array_of_strings_type))
+    )

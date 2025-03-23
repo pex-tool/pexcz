@@ -66,7 +66,6 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         clib.root_module.addImport("pexcz", lib);
-
         const clib_output = b.addInstallArtifact(clib, .{
             .dest_dir = .{
                 .override = .{

@@ -9,7 +9,11 @@ const cache = @import("cache.zig");
 const fs = @import("fs.zig");
 
 const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
-pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
+pub fn bootPexZ(
+    python_exe_path: [*:0]const u8,
+    pex_path: [*:0]const u8,
+    environ: [*:null]const ?[*:0]const u8,
+) !void {
     var timer = try std.time.Timer.start();
     defer std.debug.print(
         "boot_pex({s}, {s}) took {d:.3}µs\n",
@@ -44,6 +48,21 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
     var alloc = Allocator(.{ .safety = true, .verbose_log = true }).init();
     defer alloc.deinit();
     const allocator = alloc.allocator();
+
+    // TODO(John Sirois): See if we need to patch std.os.environ on Windows too. Looks like we'd
+    //  use `std.os.windows.kernel32.SetEnvironmentVariableW`.
+    var env_list: ?std.ArrayList([*:0]u8) = null;
+    if (builtin.target.os.tag != .windows) {
+        env_list = try std.ArrayList([*:0]u8).initCapacity(allocator, std.mem.len(environ));
+        errdefer env_list.?.deinit();
+
+        var i: usize = 0;
+        while (environ[i]) |entryZ| : (i += 1) {
+            try env_list.?.append(@constCast(entryZ));
+        }
+        std.os.environ = env_list.?.items;
+    }
+    defer if (env_list) |el| el.deinit();
 
     var temp_dirs = fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
