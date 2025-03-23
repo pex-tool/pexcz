@@ -18,7 +18,7 @@ from ctypes import cdll
 TYPING = False
 
 if TYPING:
-    from typing import Callable, NoReturn, Optional, Protocol  # noqa
+    from typing import Any, Callable, NoReturn, Optional, Protocol, Sequence  # noqa
 else:
 
     class Protocol(object):  # type: ignore[no-redef]
@@ -190,12 +190,16 @@ def _unload_dll(
 
 
 class Pexcz(Protocol):
+    # N.B.: Both environ and argv are pointers to null terminated string arrays but these are not
+    # currently representable in any easy way to type-checkers; so we resort to Any.
     def boot(
         self,
         python_exe,  # type: bytes
         pex_file,  # type: bytes
+        environ,  # type:  Any
+        argv,  # type: Any
     ):
-        # type: (...) -> None
+        # type: (...) -> int
         pass
 
 
@@ -262,20 +266,39 @@ def _load_pexcz():
 _pexcz = _load_pexcz()
 
 
+def to_cstr(value):
+    # type: (str) -> bytes
+    return value.encode("utf-8") + b"\x00"
+
+
+def to_array_of_cstr(values):
+    # type: (Sequence[str]) -> ctypes.Array[ctypes.c_char_p]
+    array_type = ctypes.c_char_p * (len(values) + 1)
+    array_of_cstr = array_type()
+    for index, value in enumerate(values):
+        array_of_cstr[index] = to_cstr(value)
+    array_of_cstr[len(values)] = None
+    return array_of_cstr
+
+
+# N.B.: pexcz uses this to indicate an internal oot error (vs the return code from executing the
+# booted PEX).
+BOOT_ERROR_CODE = 75
+
+
 @timed(MS)
 def boot(pex):
     # type: (str) -> NoReturn
 
-    python_exe = sys.executable.encode("utf-8") + b"\x00"
-    pex_file = pex.encode("utf-8") + b"\x00"
+    python_exe = to_cstr(sys.executable)
+    pex_file = to_cstr(pex)
+    environ = to_array_of_cstr(tuple((name + "=" + value) for name, value in os.environ.items()))
+    argv = to_array_of_cstr(sys.argv)
 
-    array_of_strings_type = ctypes.c_char_p * (len(os.environ) + 1)
-    array_of_strings = array_of_strings_type()
-    for index, (name, value) in enumerate(os.environ.items()):
-        array_of_strings[index] = (
-            "{name}={value}".format(name=name, value=value).encode("utf-8") + b"\x00"
-        )
-    array_of_strings[len(os.environ)] = None
-    environ = ctypes.cast(array_of_strings, ctypes.POINTER(array_of_strings_type))
-
-    sys.exit(_pexcz.boot(python_exe, pex_file, environ))
+    result = _pexcz.boot(
+        python_exe,
+        pex_file,
+        ctypes.cast(environ, ctypes.POINTER(type(environ))),
+        ctypes.cast(argv, ctypes.POINTER(type(argv))),
+    )
+    sys.exit(result)

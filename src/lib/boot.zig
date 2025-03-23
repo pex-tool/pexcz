@@ -1,6 +1,5 @@
+const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
-const File = fs.File;
-const builtin = @import("builtin");
 
 const Allocator = @import("heap.zig").Allocator;
 const parse_pex_info = @import("pex_info.zig").parse;
@@ -9,12 +8,17 @@ const cache = @import("cache.zig");
 const fs = @import("fs.zig");
 
 const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
-pub fn bootPexZ(allocator: std.mem.Allocator, python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !void {
-    var timer = try std.time.Timer.start();
-    defer std.debug.print(
+
+pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i8 {
+    var timer = std.time.Timer.start() catch null;
+    defer if (timer) |*elpased| std.debug.print(
         "bootPexZ({s}, {s}) took {d:.3}µs\n",
-        .{ python_exe_path, pex_path, timer.read() / 1_000 },
+        .{ python_exe_path, pex_path, elpased.read() / 1_000 },
     );
+
+    var alloc = Allocator(.{ .safety = true, .verbose_log = true }).init();
+    defer alloc.deinit();
+    const allocator = alloc.allocator();
 
     // [ ] 1. Check if current interpreter + PEX has cached venv and re-exec to it if so.
     //     + Load PEX-INFO to get: `pex_hash`.
@@ -90,5 +94,15 @@ pub fn bootPexZ(allocator: std.mem.Allocator, python_exe_path: [*:0]const u8, pe
     };
     var dir = try venv_cache_dir.createAtomic(Fn.touch, .{});
     defer dir.close();
+
     std.debug.print("Write locked venv cache dir {s}: {}\n", .{ venv_cache_dir.path, dir });
+
+    const argv = if (native_os == .windows) try std.process.argsAlloc(allocator) else std.os.argv;
+    defer if (native_os == .windows) std.process.argsFree(allocator, argv);
+    std.debug.print(">>> argv({d}) -> {*}:\n", .{ argv.len, argv.ptr });
+    for (argv) |arg| {
+        std.debug.print("... {s}:\n", .{arg});
+    }
+
+    return 0;
 }

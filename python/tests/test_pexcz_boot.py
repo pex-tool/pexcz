@@ -11,12 +11,12 @@ def test_boot(tmp_path: Path) -> None:
     )
 
     start = time.time()
-    try:
-        from pexcz import boot
+    from pexcz import BOOT_ERROR_CODE, boot
 
+    try:
         boot(str(pex))
     except SystemExit as e:
-        assert e.code == 0, f"Unexpected boot failure: {e}"
+        assert e.code != BOOT_ERROR_CODE, f"Unexpected boot failure: {e}"
     finally:
         print(
             f"pexcz.boot import and run took {(time.time() - start) * 1_000:.3}ms",

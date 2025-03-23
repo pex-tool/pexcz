@@ -1,58 +1,41 @@
-const builtin = @import("builtin");
+const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 const pexcz = @import("pexcz");
 
-const EnvList = std.ArrayList([*:0]u8);
-
-fn setupEnv(allocator: std.mem.Allocator, environ: [*:null]const ?[*c]const u8) !?EnvList {
-    // N.B.: The environment is already set up correctly for Windows processes.
-    if (builtin.target.os.tag == .windows) {
-        return null;
-    }
-
-    var env_list: EnvList = try .initCapacity(allocator, std.mem.len(environ));
-    errdefer env_list.deinit();
-
-    var i: usize = 0;
-    while (environ[i]) |entryZ| : (i += 1) {
-        try env_list.append(@constCast(entryZ));
-    }
-    std.os.environ = env_list.items;
-    return env_list;
+fn sliceZ(values: [*:null]?[*:0]const u8) [][*:0]u8 {
+    var len: usize = 0;
+    while (values[len] != null) : (len += 1) {}
+    return @as([*][*:0]u8, @ptrCast(values))[0..len];
 }
 
-const BootResult = enum(c_uint) { success = 0, env_setup_failure = 1, boot_failure = 2 };
+const BootResult = enum(c_int) {
+    boot_error = 75,
+    _,
+};
 
 export fn boot(
-    python: [*c]const u8,
-    pex: [*c]const u8,
-    environ: [*:null]const ?[*c]const u8,
-) BootResult {
+    python: [*:0]const u8,
+    pex: [*:0]const u8,
+    environ: [*:null]?[*:0]const u8,
+    argv: [*:null]?[*:0]const u8,
+) c_int {
     var timer = std.time.Timer.start() catch null;
-    defer if (timer) |*t| std.debug.print(
+    defer if (timer) |*elpased| std.debug.print(
         "C boot({s}, {s}, ...) took {d:.3}µs\n",
-        .{ python, pex, t.read() / 1_000 },
+        .{ python, pex, elpased.read() / 1_000 },
     );
 
-    var alloc = pexcz.Allocator(.{ .safety = true, .verbose_log = true }).init();
-    defer alloc.deinit();
-    const allocator = alloc.allocator();
+    // N.B.: The environment and argv are already set up correctly for Windows processes.
+    if (native_os != .windows) {
+        std.os.environ = sliceZ(environ);
+        std.os.argv = sliceZ(argv);
+    }
 
-    const env_list = setupEnv(allocator, environ) catch |err| {
-        std.debug.print(
-            "Failed to set up environment to boot {[pex]s} using {[python]s}: {[err]}",
-            .{ .pex = pex, .python = python, .err = err },
-        );
-        return .env_setup_failure;
-    };
-    defer if (env_list) |el| el.deinit();
-
-    pexcz.bootPexZ(allocator, python, pex) catch |err| {
+    return pexcz.bootPexZ(python, pex) catch |err| {
         std.debug.print(
             "Failed to boot {[pex]s} using {[python]s}: {[err]}\n",
             .{ .pex = pex, .python = python, .err = err },
         );
-        return .boot_failure;
+        return @intFromEnum(BootResult.boot_error);
     };
-    return .success;
 }
