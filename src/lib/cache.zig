@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const known_folders = @import("known-folders");
 
@@ -14,7 +15,13 @@ pub const CacheDir = struct {
             }
             switch (mode) {
                 .shared => try self.file.downgradeLock(),
-                .exclusive => try self.file.lock(.exclusive),
+                .exclusive => {
+                    if (builtin.target.os.tag == .windows) {
+                        // Windows shared locks are not re-entrant; so this is the best we can do.
+                        self.file.unlock();
+                    }
+                    try self.file.lock(.exclusive);
+                },
                 .none => self.file.unlock(),
             }
             self.mode = mode;
