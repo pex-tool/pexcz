@@ -18,7 +18,7 @@ from ctypes import cdll
 TYPING = False
 
 if TYPING:
-    from typing import Callable, Optional, Protocol  # noqa
+    from typing import Callable, NoReturn, Optional, Protocol  # noqa
 else:
 
     class Protocol(object):  # type: ignore[no-redef]
@@ -264,7 +264,7 @@ _pexcz = _load_pexcz()
 
 @timed(MS)
 def boot(pex):
-    # type: (str) -> None
+    # type: (str) -> NoReturn
 
     python_exe = sys.executable.encode("utf-8") + b"\x00"
     pex_file = pex.encode("utf-8") + b"\x00"
@@ -278,4 +278,4 @@ def boot(pex):
     array_of_strings[len(os.environ)] = None
     environ = ctypes.cast(array_of_strings, ctypes.POINTER(array_of_strings_type))
 
-    _pexcz.boot(python_exe, pex_file, environ)
+    sys.exit(_pexcz.boot(python_exe, pex_file, environ))

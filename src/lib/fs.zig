@@ -10,6 +10,7 @@ const TempDirRoot = struct {
     fn deinit(self: *Self) void {
         if (self.allocator) |allocator| {
             allocator.free(self.path);
+            self.allocator = null;
         }
     }
 
