@@ -14,7 +14,7 @@ def test_boot(tmp_path: Path) -> None:
     from pexcz import BOOT_ERROR_CODE, boot
 
     try:
-        boot(str(pex))
+        boot(str(pex), args=["-t", "Moo!"])
     except SystemExit as e:
         assert e.code != BOOT_ERROR_CODE, f"Unexpected boot failure: {e}"
     finally:

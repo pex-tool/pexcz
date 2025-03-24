@@ -18,7 +18,8 @@ from ctypes import cdll
 TYPING = False
 
 if TYPING:
-    from typing import Any, Callable, NoReturn, Optional, Protocol, Sequence  # noqa
+    # Ruff doesn't understand Python 2 and thus the type comment usages.
+    from typing import Any, Callable, Mapping, NoReturn, Optional, Protocol, Sequence  # noqa: F401
 else:
 
     class Protocol(object):  # type: ignore[no-redef]
@@ -66,6 +67,8 @@ LINUX = OperatingSystem("linux", lib_prefix="lib", lib_extension="so")
 MACOS = OperatingSystem("macos", lib_prefix="lib", lib_extension="dylib")
 WINDOWS = OperatingSystem("windows", lib_extension="dll")
 
+CURRENT_OS = OperatingSystem.current()
+
 
 class Arch(object):
     @classmethod
@@ -97,6 +100,8 @@ ARM64 = Arch("aarch64")
 ARM32 = Arch("arm")
 PPC64LE = Arch("powerpc64le")
 X86_64 = Arch("x86_64")
+
+CURRENT_ARCH = Arch.current()
 
 
 class TimeUnit(object):
@@ -207,15 +212,12 @@ class Pexcz(Protocol):
 def _load_pexcz():
     # type: () -> Pexcz
 
-    operating_system = OperatingSystem.current()
-    arch = Arch.current()
-
     dll = None  # type: Optional[Pexcz]
-    library_file_name = operating_system.library_file_name("pexcz")
+    library_file_name = CURRENT_OS.library_file_name("pexcz")
     tmp_dir = tempfile.mkdtemp()
     library_file_path = os.path.join(tmp_dir, os.path.basename(library_file_name))
     try:
-        platform_id = "{arch}-{os}".format(arch=arch, os=operating_system)
+        platform_id = "{arch}-{os}".format(arch=CURRENT_ARCH, os=CURRENT_OS)
         try:
             # N.B.: This is the production resource.
             pexcz_data = pkgutil.get_data(
@@ -234,7 +236,7 @@ def _load_pexcz():
         dll = pexcz
         return pexcz
     finally:
-        if operating_system is WINDOWS:
+        if CURRENT_OS is WINDOWS:
             # N.B.: Once the library is loaded on Windows, it can't be deleted without jumping
             # through extra hoops:
             # PermissionError: [WinError 5] Access is denied: 'C:...\\Temp\\tmpbyxvw46f\\pexcz.dll'
@@ -287,18 +289,43 @@ BOOT_ERROR_CODE = 75
 
 
 @timed(MS)
-def boot(pex):
-    # type: (str) -> NoReturn
+def boot(
+    pex,
+    python=None,  # type: Optional[str]
+    python_args=None,  # type: Optional[Sequence[str]]
+    args=None,  # type: Optional[Sequence[str]]
+    env=None,  # type: Optional[Mapping[str, str]]
+):
+    # type: (...) -> NoReturn
 
-    python_exe = to_cstr(sys.executable)
     pex_file = to_cstr(pex)
-    environ = to_array_of_cstr(tuple((name + "=" + value) for name, value in os.environ.items()))
-    argv = to_array_of_cstr(sys.argv)
 
-    result = _pexcz.boot(
-        python_exe,
-        pex_file,
-        ctypes.cast(environ, ctypes.POINTER(type(environ))),
-        ctypes.cast(argv, ctypes.POINTER(type(argv))),
+    boot_python = python or sys.executable
+    python_exe = to_cstr(boot_python)
+
+    if CURRENT_OS is WINDOWS:
+        sys.exit(_pexcz.boot(python_exe, pex_file))
+
+    if python_args or args:
+        arg_list = [boot_python]
+        if python_args:
+            arg_list.extend(python_args)
+        arg_list.append(pex)
+        if args:
+            arg_list.extend(args)
+        argv = to_array_of_cstr(arg_list)
+    else:
+        argv = to_array_of_cstr(sys.argv)
+
+    environ = to_array_of_cstr(
+        tuple((name + "=" + value) for name, value in (env or os.environ).items())
     )
-    sys.exit(result)
+
+    sys.exit(
+        _pexcz.boot(
+            python_exe,
+            pex_file,
+            ctypes.cast(argv, ctypes.POINTER(type(argv))),
+            ctypes.cast(environ, ctypes.POINTER(type(environ))),
+        )
+    )

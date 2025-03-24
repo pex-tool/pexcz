@@ -2,6 +2,7 @@ const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
 const Allocator = @import("heap.zig").Allocator;
+const Environ = @import("process.zig").Environ;
 const parse_pex_info = @import("pex_info.zig").parse;
 const venv = @import("Virtualenv.zig");
 const cache = @import("cache.zig");
@@ -9,7 +10,7 @@ const fs = @import("fs.zig");
 
 const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
 
-pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i8 {
+pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i32 {
     var timer = std.time.Timer.start() catch null;
     defer if (timer) |*elpased| std.debug.print(
         "bootPexZ({s}, {s}) took {d:.3}µs\n",
@@ -20,6 +21,71 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i8 {
     defer alloc.deinit();
     const allocator = alloc.allocator();
 
+    const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
+    defer boot_spec.deinit();
+
+    var process = std.process.Child.init(
+        &.{ std.mem.span(boot_spec.python_exe), std.mem.span(boot_spec.main_py) },
+        allocator,
+    );
+    switch (try process.spawnAndWait()) {
+        .Exited => |code| return code,
+        .Signal => |_| return -1, // -1 * sig,
+        .Stopped => |_| {
+            return -75;
+        },
+        .Unknown => |_| {
+            return -76;
+        },
+    }
+}
+
+pub fn bootPexZPosix(
+    python_exe_path: [*:0]const u8,
+    pex_path: [*:0]const u8,
+    environ: Environ,
+) !noreturn {
+    var timer = std.time.Timer.start() catch null;
+    defer if (timer) |*elpased| std.debug.print(
+        "bootPexZPosix({s}, {s}, ...) took {d:.3}µs\n",
+        .{ python_exe_path, pex_path, elpased.read() / 1_000 },
+    );
+
+    var alloc = Allocator(.{ .safety = true, .verbose_log = true }).init();
+    defer alloc.deinit();
+    const allocator = alloc.allocator();
+
+    environ.exportValues();
+
+    const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
+    defer boot_spec.deinit();
+
+    var argv = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, 2);
+    defer argv.deinit();
+
+    try argv.append(boot_spec.python_exe);
+    try argv.append(boot_spec.main_py);
+    try argv.append(null);
+
+    return std.posix.execvpeZ(boot_spec.python_exe, @ptrCast(argv.items), environ.envp);
+}
+
+const BootSpec = struct {
+    allocator: std.mem.Allocator,
+    python_exe: [*:0]const u8,
+    main_py: [*:0]const u8,
+
+    fn deinit(self: @This()) void {
+        self.allocator.free(std.mem.span(self.python_exe));
+        self.allocator.free(std.mem.span(self.main_py));
+    }
+};
+
+fn setupBoot(
+    allocator: std.mem.Allocator,
+    python_exe_path: [*:0]const u8,
+    pex_path: [*:0]const u8,
+) !BootSpec {
     // [ ] 1. Check if current interpreter + PEX has cached venv and re-exec to it if so.
     //     + Load PEX-INFO to get: `pex_hash`.
     // [ ] 2. Find viable interpreter for PEX to create venv with.
@@ -44,6 +110,8 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i8 {
     //       * `inject_args`
     //       * `inject_env`
     // [ ] 5. Re-exec to venv.
+
+    _ = python_exe_path;
 
     var temp_dirs = fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
@@ -97,12 +165,11 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i8 {
 
     std.debug.print("Write locked venv cache dir {s}: {}\n", .{ venv_cache_dir.path, dir });
 
-    const argv = if (native_os == .windows) try std.process.argsAlloc(allocator) else std.os.argv;
-    defer if (native_os == .windows) std.process.argsFree(allocator, argv);
-    std.debug.print(">>> argv({d}) -> {*}:\n", .{ argv.len, argv.ptr });
-    for (argv) |arg| {
-        std.debug.print("... {s}:\n", .{arg});
-    }
-
-    return 0;
+    const python_exe = try std.fs.path.joinZ(
+        allocator,
+        // TODO(John Sirois): Handle when to use pythonw.exe (no terminal window).
+        if (native_os == .windows) &.{ "Scripts", "python.exe" } else &.{ "bin", "python" },
+    );
+    const main_py = try std.fs.path.joinZ(allocator, &.{ venv_cache_dir.path, "__main__.py" });
+    return .{ .allocator = allocator, .python_exe = python_exe, .main_py = main_py };
 }
