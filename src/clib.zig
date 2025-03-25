@@ -1,4 +1,5 @@
-const native_os = @import("builtin").target.os.tag;
+const builtin = @import("builtin");
+const native_os = builtin.target.os.tag;
 const std = @import("std");
 const pexcz = @import("pexcz");
 
@@ -30,8 +31,8 @@ usingnamespace if (native_os == .windows) struct {
     export fn boot(
         python: [*:0]const u8,
         pex: [*:0]const u8,
-        argv: [*:null]?[*:0]const u8,
-        envp: [*:null]?[*:0]const u8,
+        argv: [*:null]?[*:0]u8,
+        envp: [*:null]?[*:0]u8,
     ) c_int {
         var timer = std.time.Timer.start() catch null;
         defer if (timer) |*elpased| std.debug.print(
@@ -39,7 +40,10 @@ usingnamespace if (native_os == .windows) struct {
             .{ python, pex, elpased.read() / 1_000 },
         );
 
-        const environ = pexcz.Environ{ .argv = argv, .envp = envp };
+        const environ = if (!builtin.link_libc) pexcz.Environ{
+            .argv = argv,
+            .envp = envp,
+        } else null;
         return pexcz.bootPexZPosix(python, pex, environ) catch |err| {
             std.debug.print(
                 "Failed to boot {[pex]s} using {[python]s}: {[err]}\n",

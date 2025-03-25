@@ -160,8 +160,8 @@ if CURRENT_OS is WINDOWS:
     MAX_UNLOAD_WAIT_SECS = 0.05
 
     import gc
-    from ctypes import WinError, windll
-    from ctypes.wintypes import HMODULE
+    from ctypes import WinError, windll  # type: ignore[attr-defined]
+    from ctypes.wintypes import HMODULE  # type: ignore[attr-defined]
     from os.path import dirname, exists
     from shutil import rmtree
     from time import time as now

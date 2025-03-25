@@ -44,7 +44,7 @@ pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i32 {
 pub fn bootPexZPosix(
     python_exe_path: [*:0]const u8,
     pex_path: [*:0]const u8,
-    environ: Environ,
+    environ: ?Environ,
 ) !noreturn {
     var timer = std.time.Timer.start() catch null;
     defer if (timer) |*elpased| std.debug.print(
@@ -56,7 +56,17 @@ pub fn bootPexZPosix(
     defer alloc.deinit();
     const allocator = alloc.allocator();
 
-    environ.exportValues();
+    const envp: [*:null]?[*:0]u8 = res: {
+        if (environ) |env| {
+            env.exportValues();
+            break :res env.envp;
+        } else {
+            var env_map = try std.process.getEnvMap(allocator);
+            defer env_map.deinit();
+            const envp = try std.process.createNullDelimitedEnvMap(allocator, &env_map);
+            break :res envp.ptr;
+        }
+    };
 
     const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
     defer boot_spec.deinit();
@@ -68,7 +78,7 @@ pub fn bootPexZPosix(
     try argv.append(boot_spec.main_py);
     try argv.append(null);
 
-    return std.posix.execvpeZ(boot_spec.python_exe, @ptrCast(argv.items), environ.envp);
+    return std.posix.execvpeZ(boot_spec.python_exe, @ptrCast(argv.items), envp);
 }
 
 const BootSpec = struct {
