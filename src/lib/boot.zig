@@ -4,7 +4,7 @@ const std = @import("std");
 const Allocator = @import("heap.zig").Allocator;
 const Environ = @import("process.zig").Environ;
 const parse_pex_info = @import("pex_info.zig").parse;
-const venv = @import("Virtualenv.zig");
+const VenvPex = @import("Virtualenv.zig").VenvPex;
 const cache = @import("cache.zig");
 const fs = @import("fs.zig");
 
@@ -111,13 +111,8 @@ fn setupBoot(
     //       * `inject_env`
     // [ ] 5. Re-exec to venv.
 
-    _ = python_exe_path;
-
     var temp_dirs = fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
-
-    var venv_lines = std.mem.splitSequence(u8, venv.VIRTUALENV_PY, "\n");
-    std.debug.print("Embedded virtualenv.py:\n{s}\n...\n", .{venv_lines.first()});
 
     var pex_file = try std.fs.cwd().openFileZ(pex_path, .{});
     defer pex_file.close();
@@ -135,9 +130,6 @@ fn setupBoot(
 
     const pex_info = try parse_pex_info(allocator, data);
     defer pex_info.deinit();
-    std.debug.print("Read PEX-INFO: {}\n", .{pex_info});
-
-    std.debug.print("TODO: zig-boot!!: {s}\n", .{pex_path});
 
     const encoder = std.fs.base64_encoder;
     const pex_hash_bytes = @as(
@@ -154,22 +146,25 @@ fn setupBoot(
     var venv_cache_dir = try pexcz_root.join(&.{ "venvs", "0", pex_hash });
     defer venv_cache_dir.deinit(.{});
 
+    const venv_pex: VenvPex = try .init(allocator, python_exe_path, pex_path, pex_info.value);
+    defer venv_pex.deinit();
+
     const Fn = struct {
-        fn touch(work_dir: std.fs.Dir) !void {
-            const proof = try work_dir.createFile("proof", .{});
-            defer proof.close();
+        fn install(work_dir: std.fs.Dir, context: VenvPex) !void {
+            std.debug.print("Installing {s} to {}...\n", .{ context.pex_path, work_dir });
+            return context.install(work_dir);
         }
     };
-    var dir = try venv_cache_dir.createAtomic(Fn.touch, .{});
+    var dir = try venv_cache_dir.createAtomic(VenvPex, Fn.install, venv_pex, .{});
     defer dir.close();
-
-    std.debug.print("Write locked venv cache dir {s}: {}\n", .{ venv_cache_dir.path, dir });
 
     const python_exe = try std.fs.path.joinZ(
         allocator,
-        // TODO(John Sirois): Handle when to use pythonw.exe (no terminal window).
-        if (native_os == .windows) &.{ "Scripts", "python.exe" } else &.{ "bin", "python" },
+        &.{ venv_cache_dir.path, venv_pex.venv_python_relpath },
     );
-    const main_py = try std.fs.path.joinZ(allocator, &.{ venv_cache_dir.path, "__main__.py" });
+    const main_py = try std.fs.path.joinZ(
+        allocator,
+        &.{ venv_cache_dir.path, VenvPex.main_py_relpath },
+    );
     return .{ .allocator = allocator, .python_exe = python_exe, .main_py = main_py };
 }
