@@ -3,6 +3,7 @@ const std = @import("std");
 
 const Allocator = @import("heap.zig").Allocator;
 const Environ = @import("process.zig").Environ;
+const Interpreter = @import("interpreter.zig").Interpreter;
 const parse_pex_info = @import("pex_info.zig").parse;
 const VenvPex = @import("Virtualenv.zig").VenvPex;
 const cache = @import("cache.zig");
@@ -111,6 +112,10 @@ fn setupBoot(
     //       * `inject_env`
     // [ ] 5. Re-exec to venv.
 
+    const interpreter = try Interpreter.identify(allocator, std.mem.span(python_exe_path));
+    defer interpreter.deinit();
+    std.debug.print("{s}:\n{}\n", .{ interpreter.value.path, interpreter.value });
+
     var temp_dirs = fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
 
@@ -150,7 +155,7 @@ fn setupBoot(
     defer venv_pex.deinit();
 
     const Fn = struct {
-        fn install(work_dir: std.fs.Dir, context: VenvPex) !void {
+        fn install(_: []const u8, work_dir: std.fs.Dir, context: VenvPex) !void {
             std.debug.print("Installing {s} to {}...\n", .{ context.pex_path, work_dir });
             return context.install(work_dir);
         }

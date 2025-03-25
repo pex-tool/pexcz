@@ -23,7 +23,11 @@ def test_boot(tmp_path: Path) -> None:
 
     start = time.time()
     subprocess.run(
-        args=[sys.executable, "-c", f"import sys, pexcz; pexcz.boot('{pex}', args=['-t', 'Moo!'])"],
+        args=[
+            sys.executable,
+            "-c",
+            f"import sys, pexcz; pexcz.boot(r'{pex}', args=['-t', 'Moo!'])",
+        ],
         check=True,
         cwd=python_source_root,
     )

@@ -4,7 +4,6 @@ from __future__ import print_function
 import atexit
 import ctypes
 import functools
-import gc
 import os.path
 import pkgutil
 import platform
@@ -19,7 +18,16 @@ TYPING = False
 
 if TYPING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
-    from typing import Any, Callable, Mapping, NoReturn, Optional, Protocol, Sequence  # noqa: F401
+    from typing import (  # noqa: F401
+        Any,
+        Callable,
+        Mapping,
+        NoReturn,
+        Optional,
+        Protocol,
+        Sequence,
+        Type,
+    )
 else:
 
     class Protocol(object):  # type: ignore[no-redef]
@@ -146,52 +154,62 @@ def timed(unit):
     return wrapper
 
 
-GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS = 0x00000004
-MAX_UNLOAD_WAIT_SECS = 0.05
+_unload_dll = None  # type: Optional[Callable[[str, Optional[Pexcz]], None]]
+if CURRENT_OS is WINDOWS:
+    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS = 0x00000004
+    MAX_UNLOAD_WAIT_SECS = 0.05
 
+    import gc
+    from ctypes import WinError, windll
+    from ctypes.wintypes import HMODULE
+    from os.path import dirname, exists
+    from shutil import rmtree
+    from time import time as now
+    from warnings import warn
 
-def _unload_dll(
-    path,  # type: str
-    dll,  # type: Optional[Pexcz]
-):
-    handle = None  # type: Optional[ctypes.wintypes.HMODULE]  # type: ignore[name-defined]
-    if dll is not None:
-        module_handle = ctypes.wintypes.HMODULE()  # type: ignore[attr-defined]
-        if not ctypes.windll.kernel32.GetModuleHandleExW(  # type: ignore[attr-defined]
-            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, dll.boot, ctypes.pointer(module_handle)
-        ):
-            warnings.warn(
-                "Failed to clean up extracted dll resource at {path}: {err}".format(
-                    path=path,
-                    err=ctypes.WinError(),  # type: ignore[attr-defined]
+    def _unload_dll(
+        path,  # type: str
+        dll,  # type: Optional[Pexcz]
+    ):
+        # type: (...) -> None
+        handle = None  # type: Optional[HMODULE]  # type: ignore[name-defined]
+        if dll is not None:
+            module_handle = HMODULE()  # type: ignore[attr-defined]
+            if not windll.kernel32.GetModuleHandleExW(  # type: ignore[attr-defined]
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, dll.boot, ctypes.pointer(module_handle)
+            ):
+                warn(
+                    "Failed to clean up extracted dll resource at {path}: {err}".format(
+                        path=path,
+                        err=WinError(),  # type: ignore[attr-defined]
+                    )
                 )
-            )
-        else:
-            handle = module_handle
-        del dll
-
-    count = 0
-    freed = False
-    start = time.time()
-    while os.path.exists(path):
-        if handle is not None:
-            if ctypes.windll.kernel32.FreeLibrary(handle):  # type: ignore[attr-defined]
-                freed = True
-            elif not freed:
-                raise ctypes.WinError()  # type: ignore[attr-defined]
             else:
-                gc.collect()
-        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
-        if not handle:
-            break
-        elapsed = time.time() - start
-        if elapsed > MAX_UNLOAD_WAIT_SECS:
-            warnings.warn(
-                "Failed to clean up extracted dll resource at {path} after {count} attempts "
-                "spanning {elapsed:.2}s".format(path=path, count=count, elapsed=elapsed)
-            )
-            break
-        count += 1
+                handle = module_handle
+            del dll
+
+        count = 0
+        freed = False
+        start = now()
+        while exists(path):
+            if handle is not None:
+                if windll.kernel32.FreeLibrary(handle):  # type: ignore[attr-defined]
+                    freed = True
+                elif not freed:
+                    raise WinError()  # type: ignore[attr-defined]
+                else:
+                    gc.collect()
+            rmtree(dirname(path), ignore_errors=True)
+            if not handle:
+                break
+            elapsed = now() - start
+            if elapsed > MAX_UNLOAD_WAIT_SECS:
+                warn(
+                    "Failed to clean up extracted dll resource at {path} after {count} attempts "
+                    "spanning {elapsed:.2}s".format(path=path, count=count, elapsed=elapsed)
+                )
+                break
+            count += 1
 
 
 class Pexcz(Protocol):
@@ -240,6 +258,7 @@ def _load_pexcz():
             # N.B.: Once the library is loaded on Windows, it can't be deleted without jumping
             # through extra hoops:
             # PermissionError: [WinError 5] Access is denied: 'C:...\\Temp\\tmpbyxvw46f\\pexcz.dll'
+            assert _unload_dll is not None
             atexit.register(_unload_dll, library_file_path, dll)
         else:
 

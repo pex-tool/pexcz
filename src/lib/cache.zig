@@ -63,7 +63,7 @@ pub const CacheDir = struct {
     pub fn createAtomic(
         self: *Self,
         comptime Context: type,
-        work: fn (work_dir: std.fs.Dir, context: Context) anyerror!void,
+        work: fn (work_path: []const u8, work_dir: std.fs.Dir, context: Context) anyerror!void,
         context: Context,
         options: std.fs.Dir.OpenOptions,
     ) !std.fs.Dir {
@@ -92,7 +92,7 @@ pub const CacheDir = struct {
             );
         };
 
-        try work(work_dir, context);
+        try work(work_path, work_dir, context);
         try work_dir.rename(work_path, self.path);
         return work_dir.openDir(self.path, options);
     }
