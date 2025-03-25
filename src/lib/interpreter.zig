@@ -55,7 +55,6 @@ pub const Interpreter = struct {
         var key_buf: [43]u8 = undefined;
         const key = encoder.encode(&key_buf, &hasher.finalResult());
         const expected_size = encoder.calcSize(Hasher.digest_length);
-        std.debug.print("Expected base64 enconding size for {d} is {d}", .{ Hasher.digest_length, expected_size });
         std.debug.assert(expected_size == key.len);
 
         var interpeter_cache = try pexcz_root.join(&.{ "interpreters", "0", key });
@@ -66,16 +65,11 @@ pub const Interpreter = struct {
             python: []const u8,
 
             fn work(work_path: []const u8, work_dir: std.fs.Dir, context: @This()) !void {
-                var env_map = try std.process.getEnvMap(context.allocator);
-                defer env_map.deinit();
-                env_map.remove("PYTHONPATH");
-
                 const result = try std.process.Child.run(.{
                     .allocator = context.allocator,
-                    .argv = &.{ context.python, "-c", interpreter_py, "info.json" },
+                    .argv = &.{ context.python, "-sE", "-c", interpreter_py, "info.json" },
                     .cwd = work_path,
                     .cwd_dir = work_dir,
-                    .env_map = &env_map,
                 });
                 context.allocator.free(result.stdout);
                 context.allocator.free(result.stderr);
@@ -105,7 +99,12 @@ pub const Interpreter = struct {
         const data = try interpeter_cache_dir.readFile("info.json", &buf);
         std.debug.assert(data.len < buf.len);
 
-        return try std.json.parseFromSlice(Interpreter, allocator, data, .{ .allocate = .alloc_always });
+        return try std.json.parseFromSlice(
+            Interpreter,
+            allocator,
+            data,
+            .{ .allocate = .alloc_always },
+        );
     }
 };
 
