@@ -48,12 +48,13 @@ pub const Interpreter = struct {
 
         // TODO(John Sirois): Re-consider key hashing scheme - compare to Pex.
         const Hasher = std.crypto.hash.sha2.Sha256;
-        var hasher = Hasher.init(.{});
-        hasher.update(path);
+        var digest: [Hasher.digest_length]u8 = undefined;
+        Hasher.hash(path, &digest, .{});
+
         const encoder = std.fs.base64_encoder;
         // N.B.: This is the correct value for a 32 byte hash (sha256).
         var key_buf: [43]u8 = undefined;
-        const key = encoder.encode(&key_buf, &hasher.finalResult());
+        const key = encoder.encode(&key_buf, &digest);
         const expected_size = encoder.calcSize(Hasher.digest_length);
         std.debug.assert(expected_size == key.len);
 
