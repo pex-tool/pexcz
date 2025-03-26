@@ -56,6 +56,12 @@ pub fn build(b: *std.Build) !void {
         });
         lib.addAnonymousImport("virtualenv.py", .{ .root_source_file = virtualenv_py_resource });
         lib.addImport("known-folders", known_folders);
+        const vendor = b.addModule("vendor", .{
+            .root_source_file = b.path("src/vendor.zig"),
+            .target = rt,
+            .optimize = optimize,
+        });
+        lib.addImport("vendor", vendor);
 
         const clib = b.addSharedLibrary(.{
             .name = "pexcz",

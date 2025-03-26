@@ -1,6 +1,6 @@
 const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
-
+const Child = @import("vendor").zig.std.process.Child;
 const cache = @import("cache.zig");
 const TempDirs = @import("fs.zig").TempDirs;
 
@@ -65,14 +65,14 @@ pub const Interpreter = struct {
             python: []const u8,
 
             fn work(work_path: []const u8, work_dir: std.fs.Dir, context: @This()) !void {
-                const result = try std.process.Child.run(.{
+                const result = try Child.run(.{
                     .allocator = context.allocator,
                     .argv = &.{ context.python, "-sE", "-c", interpreter_py, "info.json" },
                     .cwd = work_path,
                     .cwd_dir = work_dir,
                 });
-                context.allocator.free(result.stdout);
-                context.allocator.free(result.stderr);
+                defer context.allocator.free(result.stdout);
+                defer context.allocator.free(result.stderr);
                 errdefer std.debug.print(
                     \\Failed to identify interpreter at {s}.
                     \\
@@ -109,7 +109,7 @@ pub const Interpreter = struct {
 };
 
 pub const InterpreterIter = struct {
-    pub fn next() ?Interpreter {
+    pub fn next(_: @This()) ?Interpreter {
         return null;
     }
 };
