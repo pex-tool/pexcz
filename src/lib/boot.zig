@@ -4,14 +4,13 @@ const std = @import("std");
 const Allocator = @import("heap.zig").Allocator;
 const Environ = @import("process.zig").Environ;
 const Interpreter = @import("interpreter.zig").Interpreter;
-const parse_pex_info = @import("pex_info.zig").parse;
 const VenvPex = @import("Virtualenv.zig").VenvPex;
+const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
 const cache = @import("cache.zig");
 const fs = @import("fs.zig");
+const parse_pex_info = @import("pex_info.zig").parse;
 
-const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
-
-pub fn bootPexZ(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i32 {
+pub fn bootPexZWindows(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i32 {
     var timer = std.time.Timer.start() catch null;
     defer if (timer) |*elpased| std.debug.print(
         "bootPexZ({s}, {s}) took {d:.3}µs\n",
