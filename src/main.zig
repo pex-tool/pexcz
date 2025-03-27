@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
+
 const pexcz = @import("pexcz");
 
 fn help(prog: []const u8) noreturn {
@@ -94,7 +94,7 @@ fn inject(
 }
 
 pub fn main() !void {
-    var alloc = pexcz.Allocator(.{ .safety = true, .verbose_log = true }).init();
+    var alloc = pexcz.Allocator.init();
     defer alloc.deinit();
     const allocator = alloc.allocator();
 

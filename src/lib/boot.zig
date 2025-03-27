@@ -1,7 +1,6 @@
 const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
-const Allocator = @import("heap.zig").Allocator;
 const Environ = @import("process.zig").Environ;
 const Interpreter = @import("interpreter.zig").Interpreter;
 const VenvPex = @import("Virtualenv.zig").VenvPex;
@@ -10,15 +9,9 @@ const cache = @import("cache.zig");
 const fs = @import("fs.zig");
 const parse_pex_info = @import("pex_info.zig").parse;
 
-pub fn bootPexZWindows(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i32 {
-    var timer = std.time.Timer.start() catch null;
-    defer if (timer) |*elpased| std.debug.print(
-        "bootPexZ({s}, {s}) took {d:.3}µs\n",
-        .{ python_exe_path, pex_path, elpased.read() / 1_000 },
-    );
+const log = std.log.scoped(.boot);
 
-    var alloc = Allocator(.{ .safety = true, .verbose_log = true }).init();
-    defer alloc.deinit();
+pub fn bootPexZWindows(alloc: anytype, python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) !i32 {
     const allocator = alloc.allocator();
 
     const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
@@ -41,18 +34,12 @@ pub fn bootPexZWindows(python_exe_path: [*:0]const u8, pex_path: [*:0]const u8) 
 }
 
 pub fn bootPexZPosix(
+    alloc: anytype,
+    timer: *?std.time.Timer,
     python_exe_path: [*:0]const u8,
     pex_path: [*:0]const u8,
     environ: ?Environ,
 ) !noreturn {
-    var timer = std.time.Timer.start() catch null;
-    defer if (timer) |*elpased| std.debug.print(
-        "bootPexZPosix({s}, {s}, ...) took {d:.3}µs\n",
-        .{ python_exe_path, pex_path, elpased.read() / 1_000 },
-    );
-
-    var alloc = Allocator(.{ .safety = true, .verbose_log = true }).init();
-    defer alloc.deinit();
     const allocator = alloc.allocator();
 
     const envp: [*:null]?[*:0]const u8 = res: {
@@ -77,6 +64,11 @@ pub fn bootPexZPosix(
     try argv.append(boot_spec.main_py);
     try argv.append(null);
 
+    log.info("Bytes used: {d}", .{alloc.bytes_used()});
+    if (timer.*) |*elpased| log.info(
+        "C boot({s}, {s}, ...) pre-exec took {d:.3}µs",
+        .{ python_exe_path, pex_path, elpased.read() / 1_000 },
+    );
     return std.posix.execvpeZ(boot_spec.python_exe, @ptrCast(argv.items), envp);
 }
 

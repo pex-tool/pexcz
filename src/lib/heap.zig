@@ -1,28 +1,32 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-fn Gpa(comptime config: std.heap.GeneralPurposeAllocatorConfig) type {
-    return struct {
-        const GPA = std.heap.GeneralPurposeAllocator(config);
+const Debug = struct {
+    const DebugAllocator = std.heap.DebugAllocator(
+        .{ .safety = true, .verbose_log = true, .enable_memory_limit = true },
+    );
 
-        gpa: GPA,
+    debug_allocator: DebugAllocator,
 
-        const Self = @This();
+    const Self = @This();
 
-        pub fn init() Self {
-            return .{ .gpa = GPA{} };
-        }
+    pub fn init() Self {
+        return .{ .debug_allocator = DebugAllocator.init };
+    }
 
-        pub fn deinit(self: *Self) void {
-            const check = self.gpa.deinit();
-            std.debug.assert(check == .ok);
-        }
+    pub fn deinit(self: *Self) void {
+        const check = self.debug_allocator.deinit();
+        std.debug.assert(check == .ok);
+    }
 
-        pub fn allocator(self: *Self) std.mem.Allocator {
-            return self.gpa.allocator();
-        }
-    };
-}
+    pub fn allocator(self: *Self) std.mem.Allocator {
+        return self.debug_allocator.allocator();
+    }
+
+    pub fn bytes_used(self: Self) usize {
+        return self.debug_allocator.total_requested_bytes;
+    }
+};
 
 const Arena = struct {
     arena: std.heap.ArenaAllocator,
@@ -40,11 +44,13 @@ const Arena = struct {
     pub fn allocator(self: *Self) std.mem.Allocator {
         return self.arena.allocator();
     }
+
+    pub fn bytes_used(self: Self) usize {
+        return self.arena.queryCapacity();
+    }
 };
 
-pub fn Allocator(comptime config: std.heap.GeneralPurposeAllocatorConfig) type {
-    return switch (builtin.mode) {
-        .Debug => Gpa(config),
-        else => Arena,
-    };
-}
+pub const Allocator = switch (builtin.mode) {
+    .Debug => Debug,
+    else => Arena,
+};
