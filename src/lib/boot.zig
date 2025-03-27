@@ -164,8 +164,8 @@ fn setupBoot(
     defer venv_pex.deinit();
 
     const Fn = struct {
-        fn install(_: []const u8, work_dir: std.fs.Dir, context: VenvPex) !void {
-            std.debug.print("Installing {s} to {}...\n", .{ context.pex_path, work_dir });
+        fn install(work_path: []const u8, work_dir: std.fs.Dir, context: VenvPex) !void {
+            std.debug.print("Installing {s} to {s}...\n", .{ context.pex_path, work_path });
             return context.install(work_dir);
         }
     };

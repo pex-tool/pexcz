@@ -32,6 +32,6 @@ def test_boot(tmp_path: Path) -> None:
         cwd=python_source_root,
     )
     print(
-        f"pexcz.boot import and run took {(time.time() - start) * 1_000:.3}ms",
+        f"pexcz.boot import and run took {(time.time() - start) * 1_000:.5}ms",
         file=sys.stderr,
     )
