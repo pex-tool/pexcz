@@ -31,8 +31,8 @@ usingnamespace if (native_os == .windows) struct {
     export fn boot(
         python: [*:0]const u8,
         pex: [*:0]const u8,
-        argv: [*:null]?[*:0]u8,
-        envp: [*:null]?[*:0]u8,
+        argv: [*:null]?[*:0]const u8,
+        envp: [*:null]?[*:0]const u8,
     ) c_int {
         var timer = std.time.Timer.start() catch null;
         defer if (timer) |*elpased| std.debug.print(
