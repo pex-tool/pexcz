@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -23,21 +24,23 @@ def clean_zig_components() -> None:
 
 
 def build_zig_components() -> None:
+    zig = os.environ.get("PEXCZ_ZIG_BUILD")
+    if zig:
+        args = shlex.split(zig)
+    else:
+        args = [sys.executable, "-m", "ziglang", "build"]
+
     targets = os.environ.get("PEXCZ_BUILD_TARGETS", "Current")
     release_mode = os.environ.get("PEXCZ_RELEASE_MODE", "off")
-    subprocess.run(
-        args=[
-            sys.executable,
-            "-m",
-            "ziglang",
-            "build",
+    args.extend(
+        (
             f"--release={release_mode}",
             "--prefix",
             PEXCZ_PACKAGE_DIR,
             f"-Dtargets={targets}",
-        ],
-        check=True,
+        )
     )
+    subprocess.run(args, check=True)
 
 
 def build_sdist(sdist_directory: StrPath, config_settings: ConfigSettings | None = None) -> str:

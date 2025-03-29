@@ -52,7 +52,7 @@ def identify():
             "implementation_version": implementation_version,
         },
         "macos_framework_build": bool(sysconfig.get_config_vars().get("PYTHONFRAMEWORK")),
-        # TODO: XXX: record supported tags.
+        "supported_tags": [],  # TODO: XXX: record supported tags.
     }
 
 

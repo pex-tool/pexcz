@@ -56,7 +56,9 @@ cache-keys = [
     "src/**",
     "tools/**",
     { env = "PEXCZ_RELEASE_MODE" },
-    { env = "PEXCZ_UV_FORCE_BUILD" }
+    { env = "PEXCZ_BUILD_TARGETS" },
+    { env = "PEXCZ_UV_FORCE_BUILD" },
+    { env = "PEXCZ_ZIG_BUILD" }
 ]
 
 [tool.dev-cmd.commands]
