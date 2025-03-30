@@ -17,6 +17,7 @@ pub fn bootPexZWindows(alloc: anytype, python_exe_path: [*:0]const u8, pex_path:
     const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
     defer boot_spec.deinit();
 
+    // TODO: XXX: incorporate original argv.
     var process = std.process.Child.init(
         &.{ std.mem.span(boot_spec.python_exe), std.mem.span(boot_spec.main_py) },
         allocator,
@@ -57,6 +58,7 @@ pub fn bootPexZPosix(
     const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
     defer boot_spec.deinit();
 
+    // TODO: XXX: incorporate original_argv.
     var argv = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, 2);
     defer argv.deinit();
 

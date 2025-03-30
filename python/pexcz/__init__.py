@@ -269,7 +269,7 @@ def _load_pexcz():
                     )
                 )
 
-            if sys.version_info[:2] < (2, 12):
+            if sys.version_info[:2] < (3, 12):
 
                 def onerror(_func, _path, exec_info):
                     _, err, _ = exec_info
