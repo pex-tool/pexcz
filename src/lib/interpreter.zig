@@ -211,8 +211,13 @@ pub const Interpreter = struct {
     version: VersionInfo,
     marker_env: Marker.Env,
     macos_framework_build: bool,
+
+    // TODO: XXX: See if we can just keep tags as []const u8 opaque strings for set membership
+    //  tests.
+    // TODO: XXX: This will likely need to be a RankedTags struct (with a custom jsonParse method)
+    //  that contains the tags as a string map with usize rank values so we can both test set
+    //  membership and retrieve rank in one operation.
     supported_tags: []const Tag,
-    // TODO: XXX: add supported tags.
 
     const Self = @This();
 
@@ -257,9 +262,30 @@ pub const Interpreter = struct {
                     const linux = try Linux.detect(context.allocator, context.python);
                     break :res linux;
                 };
+
+                var argc: usize = 5;
+                var argv = [_][]const u8{
+                    context.python,
+                    "-sE",
+                    "-c",
+                    interpreter_py,
+                    "info.json",
+                    "--linux-info",
+                    "<replace me>",
+                };
                 if (linux_info) |linux| {
-                    std.debug.print("Detected Linux for {s}: {}\n", .{ context.python, linux });
+                    argv[argv.len - 1] = try std.json.stringifyAlloc(
+                        context.allocator,
+                        linux,
+                        .{},
+                    );
+                    argc = argv.len;
+                    std.debug.print(
+                        "Detected Linux for {s}: \n{s}\n",
+                        .{ context.python, argv[argv.len - 1] },
+                    );
                 }
+                defer if (argc == argv.len) context.allocator.free(argv[argv.len - 1]);
 
                 const Parser = struct {
                     pub fn parse(id_result: subprocess.RunResult) !void {
@@ -276,7 +302,7 @@ pub const Interpreter = struct {
                 };
                 try subprocess.run(
                     context.allocator,
-                    &.{ context.python, "-sE", "-c", interpreter_py, "info.json" },
+                    argv[0..argc],
                     Parser,
                     .{
                         .print_error_args = context.python,
