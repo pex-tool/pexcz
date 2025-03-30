@@ -26,32 +26,32 @@ const ExtraChildRunArgs = res: {
         fields[index] = field;
         index += 1;
     }
-    const ChildRunArgsStruct: std.builtin.Type.Struct = .{
+    const ExtraChildRunArgsStruct: std.builtin.Type.Struct = .{
         .layout = .auto,
         .fields = &fields,
         .decls = &.{},
         .is_tuple = false,
     };
-    break :res @Type(.{ .@"struct" = ChildRunArgsStruct });
+    break :res @Type(.{ .@"struct" = ExtraChildRunArgsStruct });
 };
 
 pub fn run(
-    Result: anytype,
+    allocator: std.mem.Allocator,
+    argv: []const []const u8,
     Parser: anytype,
     args: struct {
-        allocator: std.mem.Allocator,
-        argv: []const []const u8,
         print_error_args: @typeInfo(@TypeOf(@field(Parser, "printError"))).@"fn".params[0].type.?,
         extra_child_run_args: ExtraChildRunArgs = .{},
     },
+    Result: anytype,
 ) !Result {
-    var child_run_args: ChildRunArgs = .{ .allocator = args.allocator, .argv = args.argv };
+    var child_run_args: ChildRunArgs = .{ .allocator = allocator, .argv = argv };
     inline for (@typeInfo(ExtraChildRunArgs).@"struct".fields) |field| {
         @field(child_run_args, field.name) = @field(args.extra_child_run_args, field.name);
     }
     const result = try Child.run(child_run_args);
-    defer args.allocator.free(result.stdout);
-    defer args.allocator.free(result.stderr);
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
     errdefer {
         Parser.printError(args.print_error_args);
         std.debug.print(

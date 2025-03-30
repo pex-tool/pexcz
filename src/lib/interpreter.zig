@@ -129,13 +129,13 @@ const Linux = union(enum) {
                 };
                 return .{
                     .muslinux = try subprocess.run(
-                        Version,
+                        allocator,
+                        &.{interpreter},
                         Parser,
                         .{
-                            .allocator = allocator,
-                            .argv = &.{interpreter},
                             .print_error_args = .{ .python_exe_path = python, .interpreter_path = interpreter },
                         },
+                        Version,
                     ),
                 };
             }
@@ -177,13 +177,13 @@ const Linux = union(enum) {
                 }
             };
             gnu_libc_version = subprocess.run(
-                ?Version,
+                allocator,
+                &.{ interpreter, "--version" },
                 Parser,
                 .{
-                    .allocator = allocator,
-                    .argv = &.{ interpreter, "--version" },
                     .print_error_args = .{ .python_exe_path = python, .interpreter_path = interpreter },
                 },
+                ?Version,
             ) catch null;
         }
         return .{ .manylinux = try Manylinux.fromHeader(
@@ -275,17 +275,17 @@ pub const Interpreter = struct {
                     }
                 };
                 try subprocess.run(
-                    void,
+                    context.allocator,
+                    &.{ context.python, "-sE", "-c", interpreter_py, "info.json" },
                     Parser,
                     .{
-                        .allocator = context.allocator,
-                        .argv = &.{ context.python, "-sE", "-c", interpreter_py, "info.json" },
                         .print_error_args = context.python,
                         .extra_child_run_args = .{
                             .cwd = work_path,
                             .cwd_dir = work_dir,
                         },
                     },
+                    void,
                 );
             }
         };
