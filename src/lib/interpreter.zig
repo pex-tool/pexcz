@@ -3,12 +3,11 @@ const Elf64_Ehdr = std.elf.Elf64_Ehdr;
 const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
-const Child = @import("vendor").zig.std.process.Child;
-
 pub const Marker = @import("pep-508/Marker.zig");
 pub const Tag = @import("pep-425.zig").Tag;
 const TempDirs = @import("fs.zig").TempDirs;
 const cache = @import("cache.zig");
+const subprocess = @import("subprocess.zig");
 
 const Version = struct {
     major: u8,
@@ -45,6 +44,8 @@ const Manylinux = struct {
             try parse_source.reader().readNoEof(&hdr_buf);
             const hdr32 = @as(*const Elf32_Ehdr, @ptrCast(&hdr_buf));
 
+            // The e_flags for 32 bit arm are documented here:
+            //   https://github.com/ARM-software/abi-aa/blob/main/aaelf32/aaelf32.rst#52elf-header
             const EF_ARM_ABIMASK = 0xFF000000;
             const EF_ARM_ABI_VER5 = 0x05000000;
             const EF_ARM_ABI_FLOAT_HARD = 0x00000400;
@@ -81,7 +82,7 @@ const Linux = union(enum) {
 
         const elf_header = try std.elf.Header.read(python_exe);
         var prog_header_iter = elf_header.program_header_iterator(python_exe);
-        glibc: while (try prog_header_iter.next()) |header| {
+        while (try prog_header_iter.next()) |header| {
             if (header.p_type != std.elf.PT_INTERP) {
                 continue;
             }
@@ -102,38 +103,41 @@ const Linux = union(enum) {
             // Dynamic Program Loader
             // Usage: /lib/ld-musl-x86_64.so.1 [options] [--] pathname [args]
             if (std.mem.containsAtLeast(u8, interpreter, 1, "musl")) {
-                const result = try Child.run(.{ .allocator = allocator, .argv = &.{interpreter} });
-                defer allocator.free(result.stdout);
-                defer allocator.free(result.stderr);
-                errdefer std.debug.print(
-                    \\Failed to identify musl libc version of python interpreter at {s} using {s}.
-                    \\
-                    \\STDOUT:
-                    \\{s}
-                    \\
-                    \\STDERR:
-                    \\{s}
-                    \\
-                ,
-                    .{ python, interpreter, result.stdout, result.stderr },
-                );
-
-                var lines = std.mem.splitScalar(u8, result.stderr, '\n');
-                const prefix = "Version ";
-                while (lines.next()) |line| {
-                    if (std.mem.startsWith(u8, line, prefix)) {
-                        const version = try Version.parse(
-                            std.mem.trimRight(
-                                u8,
-                                line[prefix.len..line.len],
-                                " \n",
-                            ),
-                        );
-                        return .{ .muslinux = version };
+                const Parser = struct {
+                    pub fn parse(result: subprocess.RunResult) !Version {
+                        var lines = std.mem.splitScalar(u8, result.stderr, '\n');
+                        const prefix = "Version ";
+                        while (lines.next()) |line| {
+                            if (std.mem.startsWith(u8, line, prefix)) {
+                                return try Version.parse(
+                                    std.mem.trimRight(u8, line[prefix.len..line.len], " \n"),
+                                );
+                            }
+                        } else {
+                            return error.InterpreterIdentificationError;
+                        }
                     }
-                } else {
-                    return error.InterpreterIdentificationError;
-                }
+                    pub fn printError(
+                        args: struct { python_exe_path: []const u8, interpreter_path: []const u8 },
+                    ) void {
+                        std.debug.print(
+                            "Failed to identify musl libc version of python interpreter at {s} " ++
+                                "using {s}.",
+                            .{ args.python_exe_path, args.interpreter_path },
+                        );
+                    }
+                };
+                return .{
+                    .muslinux = try subprocess.run(
+                        Version,
+                        Parser,
+                        .{
+                            .allocator = allocator,
+                            .argv = &.{interpreter},
+                            .print_error_args = .{ .python_exe_path = python, .interpreter_path = interpreter },
+                        },
+                    ),
+                };
             }
 
             // N.B.: Support for --version in glibc >= 2.33 only (01/02/2021)
@@ -146,38 +150,41 @@ const Linux = union(enum) {
             // This is free software; see the source for copying conditions.
             // There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A
             // PARTICULAR PURPOSE.
-            const result = try Child.run(.{
-                .allocator = allocator,
-                .argv = &.{ interpreter, "--version" },
-            });
-            defer allocator.free(result.stdout);
-            defer allocator.free(result.stderr);
-            errdefer std.debug.print(
-                \\Failed to identify gnu libc version of python interpreter at {s} using {s}.
-                \\
-                \\STDOUT:
-                \\{s}
-                \\
-                \\STDERR:
-                \\{s}
-                \\
-            ,
-                .{ python, interpreter, result.stdout, result.stderr },
-            );
-            if (std.meta.eql(result.term, .{ .Exited = 0 })) {
-                var lines = std.mem.splitScalar(u8, result.stdout, '\n');
-                if (lines.next()) |line| {
-                    const prefix = "release version ";
-                    if (std.mem.lastIndexOf(u8, line, prefix)) |index| {
-                        if (std.mem.endsWith(u8, line, ".")) {
-                            gnu_libc_version = Version.parse(
-                                line[index + prefix.len .. line.len - 1],
-                            ) catch null;
-                            break :glibc;
+            const Parser = struct {
+                pub fn parse(res: subprocess.RunResult) ?Version {
+                    if (std.meta.eql(res.term, .{ .Exited = 0 })) {
+                        var lines = std.mem.splitScalar(u8, res.stdout, '\n');
+                        if (lines.next()) |line| {
+                            const prefix = "release version ";
+                            if (std.mem.lastIndexOf(u8, line, prefix)) |index| {
+                                if (std.mem.endsWith(u8, line, ".")) {
+                                    const version = line[index + prefix.len .. line.len - 1];
+                                    return Version.parse(version) catch null;
+                                }
+                            }
                         }
                     }
+                    return null;
                 }
-            }
+                pub fn printError(
+                    args: struct { python_exe_path: []const u8, interpreter_path: []const u8 },
+                ) void {
+                    std.debug.print(
+                        "Failed to identify gnu libc version of python interpreter at {s} " ++
+                            "using {s}.\n",
+                        .{ args.python_exe_path, args.interpreter_path },
+                    );
+                }
+            };
+            gnu_libc_version = subprocess.run(
+                ?Version,
+                Parser,
+                .{
+                    .allocator = allocator,
+                    .argv = &.{ interpreter, "--version" },
+                    .print_error_args = .{ .python_exe_path = python, .interpreter_path = interpreter },
+                },
+            ) catch null;
         }
         return .{ .manylinux = try Manylinux.fromHeader(
             &python_exe,
@@ -254,30 +261,32 @@ pub const Interpreter = struct {
                     std.debug.print("Detected Linux for {s}: {}\n", .{ context.python, linux });
                 }
 
-                const result = try Child.run(.{
-                    .allocator = context.allocator,
-                    .argv = &.{ context.python, "-sE", "-c", interpreter_py, "info.json" },
-                    .cwd = work_path,
-                    .cwd_dir = work_dir,
-                });
-                defer context.allocator.free(result.stdout);
-                defer context.allocator.free(result.stderr);
-                errdefer std.debug.print(
-                    \\Failed to identify interpreter at {s}.
-                    \\
-                    \\STDOUT:
-                    \\{s}
-                    \\
-                    \\STDERR:
-                    \\{s}
-                    \\
-                ,
-                    .{ context.python, result.stdout, result.stderr },
+                const Parser = struct {
+                    pub fn parse(id_result: subprocess.RunResult) !void {
+                        switch (id_result.term) {
+                            .Exited => |code| {
+                                if (code != 0) return error.InterpreterIdentificationError;
+                            },
+                            else => return error.InterpreterIdentificationError,
+                        }
+                    }
+                    pub fn printError(python: []const u8) void {
+                        std.debug.print("Failed to identify interpreter at {s}.\n", .{python});
+                    }
+                };
+                try subprocess.run(
+                    void,
+                    Parser,
+                    .{
+                        .allocator = context.allocator,
+                        .argv = &.{ context.python, "-sE", "-c", interpreter_py, "info.json" },
+                        .print_error_args = context.python,
+                        .extra_child_run_args = .{
+                            .cwd = work_path,
+                            .cwd_dir = work_dir,
+                        },
+                    },
                 );
-                switch (result.term) {
-                    .Exited => |code| if (code != 0) return error.InterpreterIdentificationError,
-                    else => return error.InterpreterIdentificationError,
-                }
             }
         };
         const work: Work = .{ .allocator = allocator, .python = path };
