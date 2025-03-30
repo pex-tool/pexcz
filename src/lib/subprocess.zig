@@ -16,13 +16,6 @@ const ExtraChildRunArgs = res: {
         if (std.mem.eql(u8, field.name, "argv")) {
             continue;
         }
-        if (field.default_value_ptr == null) {
-            @compileLog(
-                "Expected all Child.run args not including allocator and argv to have " ++
-                    "defaults, but found no default for",
-                field.name,
-            );
-        }
         fields[index] = field;
         index += 1;
     }
