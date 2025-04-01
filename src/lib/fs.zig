@@ -39,7 +39,7 @@ fn temp_dir_root(allocator: std.mem.Allocator) !TempDirRoot {
     // The result of this search is cached.
     //
     for ([_][]const u8{ "TMPDIR", "TEMP", "TMP" }) |key| {
-        if (getenv(allocator, key)) |tmp| {
+        if (try getenv(allocator, key)) |tmp| {
             return .{ .path = tmp.value, .allocator = tmp.allocator };
         }
     }

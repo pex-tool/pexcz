@@ -334,7 +334,7 @@ pub const InterpreterIter = struct {
     fn from_search_path(allocator: std.mem.Allocator, search_path: ?[]const []const u8) !Self {
         var path = search_path;
         if (path == null) {
-            if (getenv(allocator, "PATH")) |path_entries| {
+            if (try getenv(allocator, "PATH")) |path_entries| {
                 defer path_entries.deinit();
 
                 var buf = std.ArrayList([]const u8).init(allocator);

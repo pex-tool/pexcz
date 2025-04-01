@@ -4,6 +4,7 @@ const std = @import("std");
 const Environ = @import("process.zig").Environ;
 const Interpreter = @import("interpreter.zig").Interpreter;
 const VenvPex = @import("Virtualenv.zig").VenvPex;
+const Virtualenv = @import("Virtualenv.zig").Virtualenv;
 const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
 const cache = @import("cache.zig");
 const fs = @import("fs.zig");
@@ -154,21 +155,42 @@ fn setupBoot(
     var venv_cache_dir = try pexcz_root.join(&.{ "venvs", "0", pex_hash });
     defer venv_cache_dir.deinit(.{});
 
-    const venv_pex: VenvPex = try .init(allocator, interpreter.value, pex_path, pex_info.value, false);
-    defer venv_pex.deinit();
+    const venv_pex: VenvPex = try .init(pex_path, pex_info.value);
 
     const Fn = struct {
-        fn install(work_path: []const u8, work_dir: std.fs.Dir, context: VenvPex) !void {
-            std.debug.print("Installing {s} to {s}...\n", .{ context.pex_path, work_path });
-            return context.install(work_dir);
+        allocator: std.mem.Allocator,
+        venv_pex: VenvPex,
+        dest_path: []const u8,
+        interpreter: Interpreter,
+
+        const Self = @This();
+
+        fn install(work_path: []const u8, work_dir: std.fs.Dir, self: Self) !void {
+            std.debug.print("Installing {s} to {s}...\n", .{ self.venv_pex.pex_path, work_path });
+            _ = try VenvPex.install(
+                self.allocator,
+                self.dest_path,
+                work_dir,
+                self.interpreter,
+                false,
+            );
         }
     };
-    var dir = try venv_cache_dir.createAtomic(VenvPex, Fn.install, venv_pex, .{});
+    const func: Fn = .{
+        .allocator = allocator,
+        .venv_pex = venv_pex,
+        .dest_path = venv_cache_dir.path,
+        .interpreter = interpreter.value,
+    };
+    var dir = try venv_cache_dir.createAtomic(Fn, Fn.install, func, .{});
     defer dir.close();
+
+    const venv = try Virtualenv.load(allocator, dir);
+    defer venv.deinit();
 
     const python_exe = try std.fs.path.joinZ(
         allocator,
-        &.{ venv_cache_dir.path, venv_pex.venv_python_relpath },
+        &.{ venv_cache_dir.path, venv.interpreter_relpath },
     );
     const main_py = try std.fs.path.joinZ(
         allocator,
