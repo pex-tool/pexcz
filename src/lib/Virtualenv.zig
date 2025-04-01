@@ -69,7 +69,7 @@ pub const VenvPex = struct {
 };
 
 pub const Virtualenv = struct {
-    allocator: ?std.mem.Allocator,
+    allocator: std.mem.Allocator,
     dir: std.fs.Dir,
     interpreter_relpath: []const u8,
 
@@ -95,11 +95,8 @@ pub const Virtualenv = struct {
         var buffered_reader = std.io.bufferedReader(pyvenv_cfg.reader());
         var reader = buffered_reader.reader();
         var found_home = false;
-        while (try reader.readUntilDelimiterOrEofAlloc(
-            allocator,
-            '\n',
-            std.fs.max_path_bytes * 2,
-        )) |line| {
+        var buf: [std.fs.max_path_bytes * 2]u8 = undefined;
+        while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
             const home_key = "home = ";
             const interpreter_relpath_key = "interpreter-relpath = ";
             if (std.mem.startsWith(u8, line, home_key)) {
@@ -119,9 +116,9 @@ pub const Virtualenv = struct {
                 try venv_dir.access(interpreter_relpath, .{});
 
                 return .{
-                    .allocator = null,
+                    .allocator = allocator,
                     .dir = venv_dir,
-                    .interpreter_relpath = interpreter_relpath,
+                    .interpreter_relpath = try allocator.dupe(u8, interpreter_relpath),
                 };
             }
         }
@@ -201,8 +198,6 @@ pub const Virtualenv = struct {
     }
 
     pub fn deinit(self: Self) void {
-        if (self.allocator) |allocator| {
-            allocator.free(self.interpreter_relpath);
-        }
+        self.allocator.free(self.interpreter_relpath);
     }
 };
