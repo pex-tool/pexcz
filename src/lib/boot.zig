@@ -154,7 +154,7 @@ fn setupBoot(
     var venv_cache_dir = try pexcz_root.join(&.{ "venvs", "0", pex_hash });
     defer venv_cache_dir.deinit(.{});
 
-    const venv_pex: VenvPex = try .init(allocator, python_exe_path, pex_path, pex_info.value);
+    const venv_pex: VenvPex = try .init(allocator, interpreter.value, pex_path, pex_info.value, false);
     defer venv_pex.deinit();
 
     const Fn = struct {

@@ -1,5 +1,7 @@
+const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
-const builtin = @import("builtin");
+
+const getenv = @import("os.zig").getenv;
 
 const TempDirRoot = struct {
     path: []const u8,
@@ -37,32 +39,12 @@ fn temp_dir_root(allocator: std.mem.Allocator) !TempDirRoot {
     // The result of this search is cached.
     //
     for ([_][]const u8{ "TMPDIR", "TEMP", "TMP" }) |key| {
-        if (builtin.target.os.tag == .windows) {
-            const w_key = try std.unicode.utf8ToUtf16LeAllocZ(allocator, key);
-            defer allocator.free(w_key);
-
-            var lpBuffer: [32_767:0]u16 = undefined;
-            const len = std.os.windows.GetEnvironmentVariableW(
-                w_key,
-                &lpBuffer,
-                lpBuffer.len,
-            ) catch |err| {
-                switch (err) {
-                    error.EnvironmentVariableNotFound => continue,
-                    else => return err,
-                }
-            };
-            const tmp_w = lpBuffer[0..len];
-            const tmp = try std.unicode.utf16LeToUtf8Alloc(allocator, tmp_w);
-            return TempDirRoot{ .path = tmp, .allocator = allocator };
-        } else {
-            if (std.posix.getenv(key)) |tmp| {
-                return TempDirRoot{ .path = tmp };
-            }
+        if (getenv(allocator, key)) |tmp| {
+            return .{ .path = tmp.value, .allocator = tmp.allocator };
         }
     }
     const paths = res: {
-        if (builtin.target.os.tag == .windows) {
+        if (native_os == .windows) {
             break :res [_][]const u8{ "C:\\TEMP", "C:\\TMP", "\\TEMP", "\\TMP" };
         } else {
             break :res [_][]const u8{ "/tmp", "/var/tmp", "/usr/tmp" };
@@ -70,10 +52,10 @@ fn temp_dir_root(allocator: std.mem.Allocator) !TempDirRoot {
     };
     for (&paths) |path| {
         if (std.fs.accessAbsolute(path, .{ .mode = .read_write })) |_| {
-            return TempDirRoot{ .path = path };
+            return .{ .path = path };
         } else |_| {}
     }
-    return TempDirRoot{ .path = "." };
+    return .{ .path = "." };
 }
 
 pub const TempDirs = struct {

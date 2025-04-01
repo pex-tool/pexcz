@@ -43,6 +43,7 @@ def identify(supported_tags):
     implementation_name, implementation_version = implementation_name_and_version()
     return {
         "path": sys.executable,
+        "realpath": os.path.realpath(sys.executable),
         "prefix": sys.prefix,
         "base_prefix": getattr(sys, "base_prefix", None),
         "version": {

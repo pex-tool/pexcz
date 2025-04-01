@@ -7,6 +7,7 @@ pub const Marker = @import("pep-508/Marker.zig");
 pub const Tag = @import("pep-425.zig").Tag;
 const TempDirs = @import("fs.zig").TempDirs;
 const cache = @import("cache.zig");
+const getenv = @import("os.zig").getenv;
 const subprocess = @import("subprocess.zig");
 
 const Version = struct {
@@ -93,6 +94,7 @@ const Linux = union(enum) {
                 0,
                 @intCast(header.p_filesz),
             );
+            defer allocator.free(interpreter);
 
             // N.B.: Support for Version field in musl >= 0.9.15 only (01/03/2014)
             //   but musllinux support only added in
@@ -135,7 +137,6 @@ const Linux = union(enum) {
                         .{
                             .print_error_args = .{ .python_exe_path = python, .interpreter_path = interpreter },
                         },
-                        Version,
                     ),
                 };
             }
@@ -183,7 +184,6 @@ const Linux = union(enum) {
                 .{
                     .print_error_args = .{ .python_exe_path = python, .interpreter_path = interpreter },
                 },
-                ?Version,
             ) catch null;
         }
         return .{ .manylinux = try Manylinux.fromHeader(
@@ -206,6 +206,7 @@ pub const VersionInfo = struct {
 
 pub const Interpreter = struct {
     path: []const u8,
+    realpath: []const u8,
     prefix: []const u8,
     base_prefix: ?[]const u8,
     version: VersionInfo,
@@ -287,15 +288,7 @@ pub const Interpreter = struct {
                 }
                 defer if (argc == argv.len) context.allocator.free(argv[argv.len - 1]);
 
-                const Parser = struct {
-                    pub fn parse(id_result: subprocess.RunResult) !void {
-                        switch (id_result.term) {
-                            .Exited => |code| {
-                                if (code != 0) return error.InterpreterIdentificationError;
-                            },
-                            else => return error.InterpreterIdentificationError,
-                        }
-                    }
+                const CheckCall = struct {
                     pub fn printError(python: []const u8) void {
                         std.debug.print("Failed to identify interpreter at {s}.\n", .{python});
                     }
@@ -303,7 +296,7 @@ pub const Interpreter = struct {
                 try subprocess.run(
                     context.allocator,
                     argv[0..argc],
-                    Parser,
+                    subprocess.CheckCall(CheckCall.printError),
                     .{
                         .print_error_args = context.python,
                         .extra_child_run_args = .{
@@ -311,7 +304,6 @@ pub const Interpreter = struct {
                             .cwd_dir = work_dir,
                         },
                     },
-                    void,
                 );
             }
         };
@@ -333,7 +325,249 @@ pub const Interpreter = struct {
 };
 
 pub const InterpreterIter = struct {
-    pub fn next(_: @This()) ?Interpreter {
-        return null;
+    allocator: std.mem.Allocator,
+    index: usize = 0,
+    candidates: []const []const u8,
+
+    const Self = @This();
+
+    fn from_search_path(allocator: std.mem.Allocator, search_path: ?[]const []const u8) !Self {
+        var path = search_path;
+        if (path == null) {
+            if (getenv(allocator, "PATH")) |path_entries| {
+                defer path_entries.deinit();
+
+                var buf = std.ArrayList([]const u8).init(allocator);
+                errdefer buf.deinit();
+
+                var path_iter = std.mem.splitScalar(
+                    u8,
+                    path_entries.value,
+                    if (native_os == .windows) ';' else ':',
+                );
+                while (path_iter.next()) |entry| {
+                    try buf.append(entry);
+                }
+                path = try buf.toOwnedSlice();
+            }
+        }
+        defer if (search_path == null and path != null) allocator.free(path.?);
+
+        if (path == null) {
+            return error.NoSearchPath;
+        }
+
+        var candidates = std.ArrayList([]const u8).init(allocator);
+        errdefer candidates.deinit();
+
+        for (path.?) |entry| {
+            var entry_dir = try std.fs.cwd().openDir(entry, .{ .iterate = true });
+            defer entry_dir.close();
+
+            if (native_os == .windows) {
+                // TODO: XXX: What is pypy called on Windows? - double check.
+                for ([_][]const u8{
+                    "python.exe",
+                    "pythonw.exe",
+                    "pypy.exe",
+                    "pypyw.exe",
+                }) |exe_name| {
+                    if (entry_dir.access(exe_name, .{})) |_| {
+                        const candidate = try std.fs.path.join(allocator, &.{ entry, exe_name });
+                        errdefer allocator.free(candidate);
+                        candidates.append(candidate);
+                    } else |_| {}
+                }
+            } else {
+                // TODO: XXX: Macos capital-P Python?
+                var dir_iter = entry_dir.iterate();
+                next_dir_ent: while (try dir_iter.next()) |dir_ent| {
+                    switch (dir_ent.kind) {
+                        .file, .sym_link => {
+                            for ([_][]const u8{ "python", "pypy" }) |exe_prefix| {
+                                if (!std.mem.startsWith(u8, dir_ent.name, exe_prefix)) {
+                                    continue;
+                                }
+                                for ([_][]const u8{ "-config", ".py" }) |suffix| {
+                                    if (std.mem.endsWith(u8, dir_ent.name, suffix)) {
+                                        continue :next_dir_ent;
+                                    }
+                                }
+                                var look_at = exe_prefix.len;
+                                if (dir_ent.name.len > look_at) {
+                                    if (std.fmt.charToDigit(
+                                        dir_ent.name[look_at],
+                                        10,
+                                    )) |_| {} else |_| {
+                                        continue;
+                                    }
+                                    look_at += 1;
+                                    if (dir_ent.name.len > look_at) {
+                                        if (dir_ent.name[look_at] != '.') {
+                                            continue;
+                                        }
+                                        look_at += 1;
+                                        if (dir_ent.name.len > look_at) {
+                                            if (std.fmt.charToDigit(
+                                                dir_ent.name[look_at],
+                                                10,
+                                            )) |_| {} else |_| {
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (entry_dir.access(dir_ent.name, .{})) |_| {
+                                    if (entry_dir.statFile(dir_ent.name)) |stat| {
+                                        if (stat.mode & std.posix.S.IXUSR == 0) {
+                                            continue;
+                                        }
+                                    } else |_| {
+                                        continue;
+                                    }
+                                    const candidate_file = entry_dir.openFile(
+                                        dir_ent.name,
+                                        .{},
+                                    ) catch {
+                                        continue;
+                                    };
+                                    defer candidate_file.close();
+                                    var buf: [2]u8 = undefined;
+                                    _ = candidate_file.reader().readAtLeast(&buf, 2) catch {
+                                        continue;
+                                    };
+                                    if (std.mem.eql(u8, buf[0..2], "#!")) {
+                                        continue;
+                                    }
+
+                                    const candidate = try std.fs.path.join(
+                                        allocator,
+                                        &.{ entry, dir_ent.name },
+                                    );
+                                    errdefer allocator.free(candidate);
+                                    std.debug.print("... candidate: {s}\n", .{candidate});
+                                    try candidates.append(candidate);
+                                } else |_| {}
+                            }
+                        },
+                        else => continue,
+                    }
+                }
+            }
+        }
+        std.debug.print(">>> Found {d} candidates\n", .{candidates.items.len});
+        return .{ .allocator = allocator, .candidates = try candidates.toOwnedSlice() };
+    }
+
+    pub fn next(self: *Self) ?std.json.Parsed(Interpreter) {
+        if (self.index >= self.candidates.len) {
+            return null;
+        }
+        defer self.index += 1;
+        const candidate = self.candidates[self.index];
+        return Interpreter.identify(self.allocator, candidate) catch |err| {
+            std.debug.print(">>> Candidate {s} failed identification: {}\n", .{ candidate, err });
+            // TODO: XXX: Avoid recursion here - flatten with a loop.
+            self.index += 1;
+            return self.next();
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        for (self.candidates) |candidate| {
+            self.allocator.free(candidate);
+        }
+        self.allocator.free(self.candidates);
     }
 };
+
+test "compare with packaging" {
+    const Virtualenv = @import("Virtualenv.zig").Virtualenv;
+
+    var interpreters = try InterpreterIter.from_search_path(std.testing.allocator, null);
+    defer interpreters.deinit();
+
+    var seen = std.BufSet.init(std.testing.allocator);
+    defer seen.deinit();
+
+    while (interpreters.next()) |interpreter| {
+        defer interpreter.deinit();
+
+        if (seen.contains(interpreter.value.realpath)) {
+            std.debug.print(
+                "Skipping {s}, same as already tested {s}.\n",
+                .{ interpreter.value.path, interpreter.value.realpath },
+            );
+            continue;
+        }
+        try seen.insert(interpreter.value.realpath);
+
+        var tmpdir = std.testing.tmpDir(.{});
+        // N.B.: We cleanup this tmpdir only upon success at the end of the block to leave the
+        // chroot around for inspection to debug failures.
+
+        const venv = try Virtualenv.create(
+            std.testing.allocator,
+            interpreter.value,
+            tmpdir.dir,
+            true,
+        );
+        defer venv.deinit();
+
+        const CheckInstall = struct {
+            pub fn printError() void {
+                std.debug.print("Failed to install packaging\n", .{});
+            }
+        };
+        try subprocess.run(
+            std.testing.allocator,
+            &.{ venv.interpreter_relpath, "-m", "pip", "install", "packaging" },
+            subprocess.CheckCall(CheckInstall.printError),
+            .{ .extra_child_run_args = .{ .cwd_dir = venv.dir } },
+        );
+
+        const CheckQuery = struct {
+            pub fn printError() void {
+                std.debug.print("Failed to query packaging for sys tags\n", .{});
+            }
+        };
+
+        const output = try subprocess.run(
+            std.testing.allocator,
+            &.{
+                venv.interpreter_relpath,
+                "-c",
+                \\import json
+                \\import sys
+                \\
+                \\from packaging import tags
+                \\
+                \\
+                \\json.dump(list(map(str, tags.sys_tags())), sys.stdout)
+                \\
+            },
+            subprocess.CheckOutput(CheckQuery.printError),
+            .{ .extra_child_run_args = .{ .cwd_dir = venv.dir } },
+        );
+        defer std.testing.allocator.free(output);
+
+        const parsed_tags = try std.json.parseFromSlice(
+            []const Tag,
+            std.testing.allocator,
+            output,
+            .{},
+        );
+        defer parsed_tags.deinit();
+
+        std.debug.print(">>> Packaging parsed {d} tags:\n", .{parsed_tags.value.len});
+        for (parsed_tags.value) |tag| {
+            std.debug.print("  {}\n", .{tag});
+        }
+
+        try std.testing.expectEqualDeep(parsed_tags.value, interpreter.value.supported_tags);
+        tmpdir.cleanup();
+    }
+
+    // We should have found at least one Python interpreter to test against.
+    try std.testing.expect(seen.count() > 0);
+}

@@ -7,7 +7,9 @@ pub const bootPexZPosix = @import("lib/boot.zig").bootPexZPosix;
 pub const bootPexZWindows = @import("lib/boot.zig").bootPexZWindows;
 pub const cache = @import("lib/cache.zig");
 pub const fs = @import("lib/fs.zig");
+const interpreter = @import("lib/interpreter.zig");
 
 test {
     _ = cache;
+    _ = interpreter;
 }

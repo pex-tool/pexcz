@@ -124,6 +124,12 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     lib_unit_tests.root_module.addImport("known-folders", known_folders);
+    const vendor = b.addModule("vendor", .{
+        .root_source_file = b.path("src/vendor.zig"),
+        .target = cur_tgt,
+        .optimize = optimize,
+    });
+    lib_unit_tests.root_module.addImport("vendor", vendor);
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const exe_unit_tests = b.addTest(.{
