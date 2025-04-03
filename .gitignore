@@ -1,6 +1,7 @@
 __pycache__/
 /dist/
 
+/.dev-cmd/
 /.mypy_cache*/
 /.pytest_cache/
 /.ruff_cache/
