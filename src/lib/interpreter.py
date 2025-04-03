@@ -13,6 +13,7 @@ TYPING = False
 if TYPING:
     from typing import (  # noqa: F401
         Any,
+        DefaultDict,
         Dict,
         Iterable,
         Iterator,
@@ -162,7 +163,8 @@ def glibc_version_string():
     return glibc_version_string_confstr() or glibc_version_string_ctypes()
 
 
-def parse_glibc_version(version_str: str) -> tuple[int, int]:
+def parse_glibc_version(version_str):
+    # type: (str) -> Tuple[int, int]
     """Parse glibc version.
 
     We use a regexp instead of str.split because we want to discard any
@@ -189,7 +191,7 @@ def get_glibc_version():
 # For now, guess what the highest minor version might be, assume it will
 # be 50 for testing. Once this actually happens, update the dictionary
 # with the actual value.
-_LAST_GLIBC_MINOR: dict[int, int] = collections.defaultdict(lambda: 50)
+_LAST_GLIBC_MINOR: DefaultDict[int, int] = collections.defaultdict(lambda: 50)
 
 
 # From PEP 513, PEP 600

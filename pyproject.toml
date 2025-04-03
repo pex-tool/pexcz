@@ -2,7 +2,8 @@
 requires = [
     # N.B.: The lowest version of setuptools to support pyproject.toml [project] configuration.
     "setuptools>=61",
-    "ziglang==0.14.0"
+    "ziglang==0.14.0",
+    "typing-extensions",
 ]
 build-backend = "pexcz_build"
 backend-path = ["build-system"]
@@ -24,11 +25,11 @@ include = ["pexcz*"]
 
 [dependency-groups]
 dev = [
-    "dev-cmd; python_version >= '3.8'",
-    "mypy",
+    "dev-cmd[old-pythons]; python_version >= '3.8'",
+    "mypy; python_version >= '3.8'",
     "pex",
     "pytest",
-    "ruff",
+    "ruff; python_version >= '3.8'",
     "types-setuptools",
     "ziglang==0.14.0; python_version >= '3.8'",
 ]
@@ -125,3 +126,7 @@ steps = [["check-fmt", "check-lint", "type-check", "pytest", "zig-check-fmt", "z
 [tool.dev-cmd]
 default = "checks"
 exit-style = "immediate"
+
+[tool.dev-cmd.python.requirements]
+export-command = ["uv", "export", "-q", "--no-emit-project", "-o", "{requirements.txt}"]
+extra-requirements = ["-e", "./"]

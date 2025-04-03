@@ -5,15 +5,21 @@ import shlex
 import shutil
 import subprocess
 import sys
-from os import PathLike
 from pathlib import Path
-from typing import Mapping, TypeAlias
+from typing import List, Mapping, Union
 
 import setuptools.build_meta
 from setuptools.build_meta import *  # noqa
+from typing_extensions import Protocol, TypeAlias
 
-StrPath: TypeAlias = str | PathLike[str]
-ConfigSettings: TypeAlias = Mapping[str, str | list[str] | None]
+
+class PathLike(Protocol):
+    def __fspath__(self) -> str:
+        pass
+
+
+StrPath: TypeAlias = Union[str, PathLike]
+ConfigSettings: TypeAlias = Mapping[str, Union[str, List[str], None]]
 
 PEXCZ_PACKAGE_DIR = Path("python") / "pexcz"
 
