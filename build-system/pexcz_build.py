@@ -1,76 +1,63 @@
-from __future__ import annotations
-
-import os
-import shlex
-import shutil
-import subprocess
-import sys
-from pathlib import Path
-from typing import List, Mapping, Union
+from __future__ import absolute_import
 
 import setuptools.build_meta
-from setuptools.build_meta import *  # noqa
-from typing_extensions import Protocol, TypeAlias
+import zig
+from setuptools.build_meta import *  # noqa: F403
 
+TYPING = False
+if TYPING:
+    # Ruff doesn't understand Python 2 and thus the type comment usages.
+    from typing import List, Mapping, Optional, Union  # noqa: F401
 
-class PathLike(Protocol):
-    def __fspath__(self) -> str:
+    from typing_extensions import Protocol  # noqa: F401
+else:
+
+    class Protocol(object):
         pass
 
 
-StrPath: TypeAlias = Union[str, PathLike]
-ConfigSettings: TypeAlias = Mapping[str, Union[str, List[str], None]]
-
-PEXCZ_PACKAGE_DIR = Path("python") / "pexcz"
-
-
-def clean_zig_components() -> None:
-    shutil.rmtree(PEXCZ_PACKAGE_DIR / "bin", ignore_errors=True)
-    shutil.rmtree(PEXCZ_PACKAGE_DIR / "lib", ignore_errors=True)
+class PathLike(Protocol):
+    def __fspath__(self):
+        # type: () -> str
+        pass
 
 
-def build_zig_components() -> None:
-    zig = os.environ.get("PEXCZ_ZIG_BUILD")
-    if zig:
-        args = shlex.split(zig)
-    else:
-        args = [sys.executable, "-m", "ziglang", "build"]
-
-    targets = os.environ.get("PEXCZ_BUILD_TARGETS", "Current")
-    release_mode = os.environ.get("PEXCZ_RELEASE_MODE", "off")
-    args.extend(
-        (
-            f"--release={release_mode}",
-            "--prefix",
-            PEXCZ_PACKAGE_DIR,
-            f"-Dtargets={targets}",
-        )
-    )
-    subprocess.run(args, check=True)
+if TYPING:
+    StrPath = Union[str, PathLike]
+    ConfigSettings = Mapping[str, Union[str, List[str], None]]
 
 
-def build_sdist(sdist_directory: StrPath, config_settings: ConfigSettings | None = None) -> str:
-    clean_zig_components()
+def build_sdist(
+    sdist_directory,  # type: StrPath,
+    config_settings=None,  # type: Optional[ConfigSettings]
+):
+    # type: (...) -> str
+
+    zig.clean_components()
     return setuptools.build_meta.build_sdist(sdist_directory, config_settings=config_settings)
 
 
 def build_wheel(
-    wheel_directory: StrPath,
-    config_settings: ConfigSettings | None = None,
-    metadata_directory: StrPath | None = None,
-) -> str:
-    build_zig_components()
+    wheel_directory,  # type: StrPath,
+    config_settings=None,  # type: Optional[ConfigSettings]
+    metadata_directory=None,  # type: Optional[StrPath]
+):
+    # type: (...) -> str
+
+    zig.build_components()
     return setuptools.build_meta.build_wheel(
         wheel_directory, config_settings=config_settings, metadata_directory=metadata_directory
     )
 
 
 def build_editable(
-    wheel_directory: StrPath,
-    config_settings: ConfigSettings | None = None,
-    metadata_directory: StrPath | None = None,
-) -> str:
-    build_zig_components()
+    wheel_directory,  # type: StrPath,
+    config_settings=None,  # type: Optional[ConfigSettings]
+    metadata_directory=None,  # type: Optional[StrPath]
+):
+    # type: (...) -> str
+
+    zig.build_components()
     return setuptools.build_meta.build_editable(
         wheel_directory, config_settings=config_settings, metadata_directory=metadata_directory
     )

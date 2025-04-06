@@ -2,7 +2,6 @@
 requires = [
     # N.B.: The lowest version of setuptools to support pyproject.toml [project] configuration.
     "setuptools>=61",
-    "ziglang==0.14.0",
     "typing-extensions",
 ]
 build-backend = "pexcz_build"
@@ -26,12 +25,12 @@ include = ["pexcz*"]
 [dependency-groups]
 dev = [
     "dev-cmd[old-pythons]; python_version >= '3.8'",
-    "mypy; python_version >= '3.8'",
+    # We pin at 0.971 since this is the last version of mypy that supports `--python-version 2.7`.
+    "mypy[python2]==0.971; python_version >= '3.6'",
     "pex",
     "pytest",
     "ruff; python_version >= '3.8'",
     "types-setuptools",
-    "ziglang==0.14.0; python_version >= '3.8'",
 ]
 
 [tool.ruff]
@@ -47,20 +46,23 @@ required-version = ">=0.6"
 #  python/pexcz/{bin,lib}. Currently, uv is blind to this.
 cache-keys = [
     # Python:
-    "build-system/**",
+    "build-system/**/*",
     "pyproject.toml",
     "setup.py",
     "MANIFEST.in",
     # Zig:
     "build.zig",
     "build.zig.zon",
-    "src/**",
-    "tools/**",
-    { env = "PEXCZ_RELEASE_MODE" },
+    "src/**/*",
+    "tools/**/*",
     { env = "PEXCZ_BUILD_TARGETS" },
+    { env = "PEXCZ_RELEASE_MODE" },
     { env = "PEXCZ_UV_FORCE_BUILD" },
     { env = "PEXCZ_ZIG_BUILD" }
 ]
+
+### `dev-cmd` Commands and Tasks:
+### -----------------------------
 
 [tool.dev-cmd.commands]
 fmt = ["ruff", "format"]
@@ -69,10 +71,10 @@ check-fmt = ["ruff", "format", "--diff"]
 lint = ["ruff", "check", "--fix"]
 check-lint = ["ruff", "check"]
 
-zig-fmt = ["python", "-m", "ziglang", "fmt", "."]
-zig-check-fmt = ["python", "-m", "ziglang", "fmt", ".", "--check"]
+zig-fmt = ["build-system/zig.py", "fmt", "."]
+zig-check-fmt = ["build-system/zig.py", "fmt", ".", "--check"]
 
-zig-test = ["python", "-m", "ziglang", "build", "--color", "on", "test"]
+zig-test = ["build-system/zig.py", "build", "--color", "on", "test"]
 
 [tool.dev-cmd.commands.type-check.factors]
 py = "The Python version to type check in <major>.<minor> form; i.e.: 3.13."
@@ -90,7 +92,7 @@ cwd = "python/tests"
 accepts-extra-args = true
 
 [tool.dev-cmd.commands.zig]
-args = ["python", "-m", "ziglang"]
+args = ["build-system/zig.py"]
 accepts-extra-args = true
 
 [tool.dev-cmd.commands.package]
@@ -127,6 +129,54 @@ steps = [["check-fmt", "check-lint", "type-check", "pytest", "zig-check-fmt", "z
 default = "checks"
 exit-style = "immediate"
 
-[tool.dev-cmd.python.requirements]
-export-command = ["uv", "export", "-q", "--no-emit-project", "-o", "{requirements.txt}"]
-extra-requirements = ["-e", "./"]
+### Older Pythons Support:
+### ----------------------
+
+[[tool.dev-cmd.python]]
+when = "python_version >= '3.7'"
+
+# Suppress pyproject cache keys since uv.lock is enough to uniquely determine venv content.
+pyproject-cache-keys = []
+extra-cache-keys = ["uv.lock"]
+
+3rdparty-export-command = ["uv", "export", "-q", "--no-emit-project", "-o", "{requirements.txt}"]
+
+[[tool.dev-cmd.python]]
+when = "python_version >= '3' and python_version < '3.7'"
+
+# Suppress the default extra-reqs of ["-e", "."] and perform the editable install ourselves to
+# workaround issues in with older pips + editable installs + pyproject.toml.
+extra-requirements = []
+finalize-command = [
+    "{venv-python}", "build-system/pexcz_legacy_editable.py", "{venv-site-packages}"
+]
+
+[[tool.dev-cmd.python]]
+when = "python_version == '2.7'"
+
+# These `--no-emit-package` exclusions work around a bug in UV where the py3-none-any.whl is locked
+# and the py2-non-any.whl is not. We add them back below in extra-reqs along with
+# backports.functools-lru-cache which uv omits from the lock completely, but is required.
+3rdparty-export-command = [
+    "uv", "export", "-q",
+    "--no-emit-project",
+    "--no-emit-package", "more-itertools",
+    "--no-emit-package", "typing",
+    "-o", "{requirements.txt}"
+]
+3rdparty-pip-install-opts = ["--no-deps"]
+
+extra-requirements = '''
+backports.functools-lru-cache==1.6.6 \
+    --hash=sha256:77e27d0ffbb463904bdd5ef8b44363f6cd5ef503e664b3f599a3bf5843ed37cf
+more-itertools==5.0.0 \
+    --hash=sha256:c0a5785b1109a6bd7fac76d6837fd1feca158e54e521ccd2ae8bfe393cc9d4fc
+typing==3.10.0.0 \
+    --hash=sha256:c7219ef20c5fbf413b4567092adfc46fa6203cb8454eda33c3fc1afe1398a308
+'''
+
+# Perform the editable install ourselves to workaround issues in with older pips + editable
+# installs + pyproject.toml.
+finalize-command = [
+    "{venv-python}", "build-system/pexcz_legacy_editable.py", "{venv-site-packages}"
+]

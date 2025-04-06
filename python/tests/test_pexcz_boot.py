@@ -1,37 +1,45 @@
+from __future__ import absolute_import, print_function
+
+import os.path
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 import pexcz
 
+TYPING = False
+if TYPING:
+    # Ruff doesn't understand Python 2 and thus the type comment usages.
+    from typing import Any  # noqa: F401
 
-def test_boot(tmp_path: Path) -> None:
-    pex = tmp_path / "cowsay.pex"
-    subprocess.run(
-        args=["pex", "cowsay", "-c", "cowsay", "-o", pex, "--venv", "prepend"], check=True
-    )
+
+def test_boot(tmpdir):
+    # type: (Any) -> None
+
+    pex = os.path.join(str(tmpdir), "cowsay.pex")
+    subprocess.check_call(args=["pex", "cowsay", "-c", "cowsay", "-o", pex, "--venv", "prepend"])
 
     start = time.time()
-    subprocess.run(args=[sys.executable, pex, "-t", "Moo!"], check=True)
+    subprocess.check_call(args=[sys.executable, pex, "-t", "Moo!"])
     print(
-        f"Traditional PEX run took {(time.time() - start) * 1_000:.5}ms",
+        "Traditional PEX run took {elapsed:.5}ms".format(elapsed=(time.time() - start) * 1000),
         file=sys.stderr,
     )
 
-    python_source_root = Path(pexcz.__file__).parent.parent
+    python_source_root = os.path.abspath(os.path.join(pexcz.__file__, "..", ".."))
 
     start = time.time()
-    subprocess.run(
+    subprocess.check_call(
         args=[
             sys.executable,
             "-c",
-            f"import sys, pexcz; pexcz.boot(r'{pex}', args=['-t', 'Moo!'])",
+            "import sys, pexcz; pexcz.boot(r'{pex}', args=['-t', 'Moo!'])".format(pex=pex),
         ],
-        check=True,
         cwd=python_source_root,
     )
     print(
-        f"pexcz.boot import and run took {(time.time() - start) * 1_000:.5}ms",
+        "pexcz.boot import and run took {elapsed:.5}ms".format(
+            elapsed=(time.time() - start) * 1000
+        ),
         file=sys.stderr,
     )

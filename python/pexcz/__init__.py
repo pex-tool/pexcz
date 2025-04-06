@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+
 from __future__ import print_function
 
 import atexit
 import ctypes
+import errno
 import functools
 import os.path
 import pkgutil
@@ -15,7 +17,6 @@ import warnings
 from ctypes import cdll
 
 TYPING = False
-
 if TYPING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
     from typing import (  # noqa: F401
@@ -131,8 +132,8 @@ class TimeUnit(object):
         return self._name
 
 
-MS = TimeUnit("ms", 1_000)
-US = TimeUnit("µs", 1_000_000)
+MS = TimeUnit("ms", 1000)
+US = TimeUnit("µs", 1000 * 1000)
 
 
 def timed(unit):
@@ -145,7 +146,13 @@ def timed(unit):
                 return func(*args, **kwargs)
             finally:
                 print(
-                    f"{func.__name__}(*{args!r}, **{kwargs!r}) took {unit.elapsed(start):.4}{unit}",
+                    "{func}(*{args!r}, **{kwargs!r}) took {elapsed:.4}{unit}".format(
+                        func=func.__name__,
+                        args=args,
+                        kwargs=kwargs,
+                        elapsed=unit.elapsed(start),
+                        unit=unit,
+                    ),
                     file=sys.stderr,
                 )
 
@@ -241,13 +248,21 @@ def _load_pexcz():
             pexcz_data = pkgutil.get_data(
                 __name__, os.path.join("lib", platform_id, library_file_name)
             )
-        except FileNotFoundError:
+        except (IOError, OSError) as e:
+            # TODO: XXX: Is this right for Windows? We only have FileNotFoundError for newer
+            #  Pythons.
+            if e.errno != errno.ENOENT:
+                raise
             # And this is the development resource.
             pexcz_data = pkgutil.get_data(
                 __name__, os.path.join("lib", "native", library_file_name)
             )
         if pexcz_data is None:
-            raise RuntimeError(f"Pexcz is not supported on {platform}: no pexcz library found.")
+            raise RuntimeError(
+                "Pexcz is not supported on {platform}: no pexcz library found.".format(
+                    platform=platform
+                )
+            )
         with open(library_file_path, "wb") as fp:
             fp.write(pexcz_data)
         pexcz = cdll.LoadLibrary(library_file_path)  # type: Pexcz
@@ -289,11 +304,13 @@ _pexcz = _load_pexcz()
 
 def to_cstr(value):
     # type: (str) -> bytes
+
     return value.encode("utf-8") + b"\x00"
 
 
 def to_array_of_cstr(values):
     # type: (Sequence[str]) -> ctypes.Array[ctypes.c_char_p]
+
     array_type = ctypes.c_char_p * (len(values) + 1)
     array_of_cstr = array_type()
     for index, value in enumerate(values):

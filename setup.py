@@ -1,28 +1,35 @@
-from __future__ import annotations
-
 import atexit
+import os
 import shutil
 import tempfile
-from pathlib import Path
 
 from setuptools import setup
 
-_BUILD_DIR: Path | None = None
+TYPING = False
+if TYPING:
+    # Ruff doesn't understand Python 2 and thus the type comment usages.
+    from typing import Optional  # noqa: F401
+
+_BUILD_DIR = None  # type: Optional[str]
 
 
-def ensure_unique_build_dir() -> Path:
+def ensure_unique_build_dir():
+    # type: () -> str
+
     global _BUILD_DIR
     if _BUILD_DIR is None:
-        _build_dir = Path(tempfile.mkdtemp(prefix="pexcz-dist-build."))
+        _build_dir = tempfile.mkdtemp(prefix="pexcz-dist-build.")
         atexit.register(shutil.rmtree, _build_dir, ignore_errors=True)
         _BUILD_DIR = _build_dir
     return _BUILD_DIR
 
 
-def unique_build_dir(name: str) -> str:
-    path = ensure_unique_build_dir() / name
-    path.mkdir()
-    return str(path)
+def unique_build_dir(name):
+    # type: (str) -> str
+
+    path = os.path.join(ensure_unique_build_dir(), name)
+    os.mkdir(path)
+    return path
 
 
 if __name__ == "__main__":

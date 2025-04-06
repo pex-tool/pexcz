@@ -9,11 +9,10 @@ from argparse import ArgumentParser
 from contextlib import contextmanager
 
 TYPING = False
-
 if TYPING:
+    # Ruff doesn't understand Python 2 and thus the type comment usages.
     from typing import (  # noqa: F401
         Any,
-        DefaultDict,
         Dict,
         Iterable,
         Iterator,
@@ -180,6 +179,7 @@ def parse_glibc_version(version_str):
 
 def get_glibc_version():
     # type: () -> Tuple[int, int]
+
     version_str = glibc_version_string()
     if version_str is None:
         return -1, -1
@@ -191,7 +191,7 @@ def get_glibc_version():
 # For now, guess what the highest minor version might be, assume it will
 # be 50 for testing. Once this actually happens, update the dictionary
 # with the actual value.
-_LAST_GLIBC_MINOR: DefaultDict[int, int] = collections.defaultdict(lambda: 50)
+_LAST_GLIBC_MINOR = collections.defaultdict(lambda: 50)
 
 
 # From PEP 513, PEP 600
@@ -318,6 +318,7 @@ INTERPRETER_SHORT_NAMES = {
 
 def get_config_var(name):
     # type: (str) -> Optional[Union[int, str]]
+
     return sysconfig.get_config_vars().get(name)
 
 
@@ -336,6 +337,7 @@ def interpreter_version():
 
 def normalize_string(string):
     # type: (str) -> str
+
     return string.replace(".", "_").replace("-", "_").replace(" ", "_")
 
 
@@ -370,8 +372,13 @@ def cpython_abis(py_version):
     elif debug:
         # Debug builds can also load "normal" extension modules.
         # We can also assume no UCS-4 or pymalloc requirement.
-        abis.append(f"cp{version}{threading}")
-    abis.insert(0, f"cp{version}{threading}{debug}{pymalloc}{ucs4}")
+        abis.append("cp{version}{threading}".format(version=version, threading=threading))
+    abis.insert(
+        0,
+        "cp{version}{threading}{debug}{pymalloc}{ucs4}".format(
+            version=version, threading=threading, debug=debug, pymalloc=pymalloc, ucs4=ucs4
+        ),
+    )
     return abis
 
 
@@ -391,7 +398,7 @@ def generic_abi():
     # - graalpy: '.graalpy-38-native-x86_64-darwin.dylib'
     #                                               => graalpy_38_native
 
-    ext_suffix = get_config_var("EXT_SUFFIX")
+    ext_suffix = get_config_var("EXT_SUFFIX") or get_config_var("SO")
     if not isinstance(ext_suffix, str) or ext_suffix[0] != ".":
         raise SystemError("invalid sysconfig.get_config_var('EXT_SUFFIX')")
     parts = ext_suffix.split(".")
@@ -417,15 +424,19 @@ def generic_abi():
     return [normalize_string(abi)]
 
 
-def interpreter_name() -> str:
+def interpreter_name():
+    # type: () -> str
     """
     Returns the name of the running interpreter.
 
     Some implementations have a reserved, two-letter abbreviation which will
     be returned when appropriate.
     """
-    # TODO: XXX: sys.implementation.name does not exist for 2.7.
-    return INTERPRETER_SHORT_NAMES.get(sys.implementation.name)
+    return INTERPRETER_SHORT_NAMES.get(
+        sys.implementation.name
+        if hasattr(sys, "implementation")
+        else platform.python_implementation().lower()
+    )
 
 
 def cpython_tags(platforms):
@@ -460,6 +471,7 @@ def generic_tags(platforms):
 
 def version_nodot(version):
     # type: (Sequence[int]) -> str
+
     return "".join(map(str, version))
 
 
@@ -504,11 +516,14 @@ def compatible_tags(
 
 def iter_supported_tags(platforms):
     # type: (Tuple[str, ...]) -> Iterator[Tuple[str, str, str]]
+
     interp_name = interpreter_name()
     if interp_name == "cp":
-        yield from cpython_tags(platforms)
+        for tag in cpython_tags(platforms):
+            yield tag
     else:
-        yield from generic_tags(platforms)
+        for tag in generic_tags(platforms):
+            yield tag
 
     if interp_name == "pp":
         interp = "pp3"
@@ -516,7 +531,8 @@ def iter_supported_tags(platforms):
         interp = "cp" + interpreter_version()
     else:
         interp = None
-    yield from compatible_tags(platforms, interpreter=interp)
+    for tag in compatible_tags(platforms, interpreter=interp):
+        yield tag
 
 
 OS = platform.system().lower()
@@ -526,7 +542,7 @@ IS_MAC = not IS_LINUX and OS == "darwin"
 
 def main():
     # type: () -> None
-    print(*sys.argv, file=sys.stderr)
+
     parser = ArgumentParser(prog="interpreter.py")
     parser.add_argument("output_path", nargs="?", default=None)
     if IS_LINUX:
