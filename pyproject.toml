@@ -87,6 +87,8 @@ args = [
 ]
 
 [tool.dev-cmd.commands.pytest]
+python = "{-py:}"
+env = {"PYTHONHASHSEED" = "{--hashseed}"}
 args = ["pytest"]
 cwd = "python/tests"
 accepts-extra-args = true

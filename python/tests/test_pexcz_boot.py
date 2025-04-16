@@ -17,7 +17,7 @@ def test_boot(tmpdir):
     # type: (Any) -> None
 
     pex = os.path.join(str(tmpdir), "cowsay.pex")
-    subprocess.check_call(args=["pex", "cowsay", "-c", "cowsay", "-o", pex, "--venv", "prepend"])
+    subprocess.check_call(args=["pex", "cowsay<6", "-c", "cowsay", "-o", pex, "--venv", "prepend"])
 
     start = time.time()
     subprocess.check_call(args=[sys.executable, pex, "-t", "Moo!"])
