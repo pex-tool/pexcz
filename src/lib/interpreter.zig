@@ -502,6 +502,40 @@ test "compare with packaging" {
         }
         try seen.insert(interpreter.value.realpath);
 
+        const version = interpreter.value.version;
+        const actual_tags, const free_tags = res: {
+            if (version.major == 2 or (version.major == 3 and version.minor <= 6)) {
+                // The older versions of packaging that support these older Pythons miss one tag.
+                // Newer packaging corrects this as does our implementation; so we omit the tag from
+                // the packaging cross-check.
+                const python = try std.fmt.allocPrint(
+                    std.testing.allocator,
+                    "cp{d}{d}",
+                    .{ version.major, version.minor },
+                );
+                defer std.testing.allocator.free(python);
+
+                var tags = try std.testing.allocator.alloc(
+                    Tag,
+                    interpreter.value.supported_tags.len - 1,
+                );
+                var index: usize = 0;
+                for (interpreter.value.supported_tags) |tag| {
+                    if (!std.mem.eql(u8, python, tag.python) or
+                        !std.mem.eql(u8, "none", tag.abi) or
+                        !std.mem.eql(u8, "any", tag.platform))
+                    {
+                        tags[index] = tag;
+                        index += 1;
+                    }
+                }
+                break :res .{ tags, true };
+            } else {
+                break :res .{ interpreter.value.supported_tags, false };
+            }
+        };
+        defer if (free_tags) std.testing.allocator.free(actual_tags);
+
         var tmpdir = std.testing.tmpDir(.{});
         // N.B.: We cleanup this tmpdir only upon success at the end of the block to leave the
         // chroot around for inspection to debug failures.
@@ -559,23 +593,7 @@ test "compare with packaging" {
         );
         defer parsed_tags.deinit();
 
-        const packaging_results = try std.fs.cwd().createFile("/tmp/packaging-results.txt", .{});
-        defer packaging_results.close();
-        var packaging_results_log = std.io.bufferedWriter(packaging_results.writer());
-        for (parsed_tags.value) |tag| {
-            try packaging_results_log.writer().print("  {}\n", .{tag});
-        }
-        try packaging_results_log.flush();
-
-        const our_results = try std.fs.cwd().createFile("/tmp/our-results.txt", .{});
-        defer our_results.close();
-        var our_results_log = std.io.bufferedWriter(our_results.writer());
-        for (interpreter.value.supported_tags) |tag| {
-            try our_results_log.writer().print("  {}\n", .{tag});
-        }
-        try our_results_log.flush();
-
-        try std.testing.expectEqualDeep(parsed_tags.value, interpreter.value.supported_tags);
+        try std.testing.expectEqualDeep(parsed_tags.value, actual_tags);
         tmpdir.cleanup();
     }
 
