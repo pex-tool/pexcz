@@ -22,26 +22,25 @@ pub const Tag = struct {
     }
 
     pub fn jsonParse(
-        allocator: std.mem.Allocator,
+        _: std.mem.Allocator,
         source: *std.json.Scanner,
         _: std.json.ParseOptions,
     ) !Self {
-        if (try source.peekNextTokenType() != .string) {
-            return error.UnexpectedToken;
-        }
-        var component = std.ArrayList(u8).init(allocator);
-        defer component.deinit();
-        const value = try source.allocNextIntoArrayListMax(&component, .alloc_if_needed, 1_024);
-        var iter = std.mem.splitScalar(u8, value orelse component.items, '-');
-        if (iter.next()) |python| {
-            if (iter.next()) |abi| {
-                if (iter.next()) |platform| {
-                    if (iter.next() == null) {
-                        return .{ .python = python, .abi = abi, .platform = platform };
+        return switch (try source.next()) {
+            .string => |value| {
+                var iter = std.mem.splitScalar(u8, value, '-');
+                if (iter.next()) |python| {
+                    if (iter.next()) |abi| {
+                        if (iter.next()) |platform| {
+                            if (iter.next() == null) {
+                                return .{ .python = python, .abi = abi, .platform = platform };
+                            }
+                        }
                     }
                 }
-            }
-        }
-        return error.SyntaxError;
+                return error.SyntaxError;
+            },
+            else => return error.UnexpectedToken,
+        };
     }
 };

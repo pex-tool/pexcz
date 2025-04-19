@@ -1,11 +1,43 @@
 const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
-const PexInfo = @import("pex_info.zig").PexInfo;
 const Interpreter = @import("interpreter.zig").Interpreter;
+const PexInfo = @import("pex_info.zig").PexInfo;
+const Tag = @import("pep-425.zig").Tag;
 const subprocess = @import("subprocess.zig");
 
 pub const VIRTUALENV_PY = @embedFile("virtualenv.py");
+
+fn parse_wheel_tags(allocator: std.mem.Allocator, wheel_name: []const u8) ![]const Tag {
+    var components = std.mem.splitBackwardsScalar(
+        u8,
+        wheel_name[0 .. wheel_name.len - ".whl".len],
+        '-',
+    );
+    var tags = std.ArrayList(Tag).init(allocator);
+    if (components.next()) |platforms| {
+        var platforms_iter = std.mem.splitScalar(u8, platforms, '.');
+        while (platforms_iter.next()) |platform| {
+            if (components.next()) |abis| {
+                var abis_iter = std.mem.splitScalar(u8, abis, '.');
+                while (abis_iter.next()) |abi| {
+                    if (components.next()) |pythons| {
+                        var pythons_iter = std.mem.splitScalar(u8, pythons, '.');
+                        while (pythons_iter.next()) |python| {
+                            try tags.append(
+                                .{ .python = python, .abi = abi, .platform = platform },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (tags.items.len == 0) {
+        return error.InvalidWheelName;
+    }
+    return try tags.toOwnedSlice();
+}
 
 pub const VenvPex = struct {
     pub const main_py_relpath = "__main__.py";
@@ -20,6 +52,7 @@ pub const VenvPex = struct {
     }
 
     pub fn install(
+        self: Self,
         allocator: std.mem.Allocator,
         dest_path: []const u8,
         dest_dir: std.fs.Dir,
@@ -28,6 +61,45 @@ pub const VenvPex = struct {
     ) !Virtualenv {
         const venv = try Virtualenv.create(allocator, interpreter, dest_dir, include_pip);
 
+        const TagContext = struct {
+            pub fn hash(_: @This(), tag: Tag) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                std.hash.autoHashStrat(&hasher, tag, .Deep);
+                return hasher.final();
+            }
+
+            pub fn eql(_: @This(), one: Tag, two: Tag) bool {
+                return (std.mem.eql(u8, one.python, two.python) and
+                    std.mem.eql(u8, one.abi, two.abi) and
+                    std.mem.eql(u8, one.platform, two.platform));
+            }
+        };
+        var tags_to_rank = std.HashMap(
+            Tag,
+            usize,
+            TagContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(allocator);
+        defer tags_to_rank.deinit();
+
+        for (interpreter.supported_tags, 0..) |tag, rank| {
+            try tags_to_rank.put(tag, rank);
+        }
+
+        var dists = self.pex_info.distributions.map.iterator();
+        while (dists.next()) |entry| {
+            const wheel_tags = try parse_wheel_tags(allocator, entry.key_ptr.*);
+            defer allocator.free(wheel_tags);
+
+            for (wheel_tags) |wheel_tag| {
+                if (tags_to_rank.get(wheel_tag)) |rank| {
+                    std.debug.print(
+                        "{d} {s} <- {s} matches {s}\n",
+                        .{ rank, wheel_tag, entry.key_ptr.*, interpreter.path },
+                    );
+                }
+            }
+        }
         const main_py = try dest_dir.createFile(Self.main_py_relpath, .{});
         defer main_py.close();
 

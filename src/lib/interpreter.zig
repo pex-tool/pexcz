@@ -311,15 +311,14 @@ pub const Interpreter = struct {
         var interpeter_cache_dir = try interpeter_cache.createAtomic(Work, Work.work, work, .{});
         defer interpeter_cache_dir.close();
 
-        var buf: [100 * 1024]u8 = undefined;
-        const data = try interpeter_cache_dir.readFile("info.json", &buf);
-        std.debug.assert(data.len < buf.len);
+        const data = try interpeter_cache_dir.readFileAlloc(allocator, "info.json", 1024 * 1024);
+        defer allocator.free(data);
 
         return try std.json.parseFromSlice(
             Interpreter,
             allocator,
             data,
-            .{ .allocate = .alloc_always },
+            .{},
         );
     }
 };

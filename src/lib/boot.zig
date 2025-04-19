@@ -118,7 +118,6 @@ fn setupBoot(
 
     const interpreter = try Interpreter.identify(allocator, std.mem.span(python_exe_path));
     defer interpreter.deinit();
-    std.debug.print("{s}:\n{}\n", .{ interpreter.value.path, interpreter.value });
 
     var temp_dirs = fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
@@ -166,8 +165,8 @@ fn setupBoot(
         const Self = @This();
 
         fn install(work_path: []const u8, work_dir: std.fs.Dir, self: Self) !void {
-            std.debug.print("Installing {s} to {s}...\n", .{ self.venv_pex.pex_path, work_path });
-            _ = try VenvPex.install(
+            std.debug.print("Installing {s} to {s} with tags:\n", .{ self.venv_pex.pex_path, work_path });
+            _ = try self.venv_pex.install(
                 self.allocator,
                 self.dest_path,
                 work_dir,
