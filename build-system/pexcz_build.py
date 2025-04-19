@@ -22,26 +22,13 @@ if TYPE_CHECKING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
     from typing import List, Mapping, Optional, Union  # noqa: F401
 
-    from typing_extensions import Protocol  # noqa: F401
-else:
-
-    class Protocol(object):
-        pass
-
-
-class PathLike(Protocol):
-    def __fspath__(self):
-        # type: () -> str
-        pass
-
 
 if TYPE_CHECKING:
-    StrPath = Union[str, PathLike]
     ConfigSettings = Mapping[str, Union[str, List[str], None]]
 
 
 def build_sdist(
-    sdist_directory,  # type: StrPath
+    sdist_directory,  # type: str
     config_settings=None,  # type: Optional[ConfigSettings]
 ):
     # type: (...) -> str
@@ -51,9 +38,9 @@ def build_sdist(
 
 
 def build_wheel(
-    wheel_directory,  # type: StrPath
+    wheel_directory,  # type: str
     config_settings=None,  # type: Optional[ConfigSettings]
-    metadata_directory=None,  # type: Optional[StrPath]
+    metadata_directory=None,  # type: Optional[str]
 ):
     # type: (...) -> str
 
@@ -64,9 +51,9 @@ def build_wheel(
 
 
 def build_editable(
-    wheel_directory,  # type: StrPath
+    wheel_directory,  # type: str
     config_settings=None,  # type: Optional[ConfigSettings]
-    metadata_directory=None,  # type: Optional[StrPath]
+    metadata_directory=None,  # type: Optional[str]
 ):
     # type: (...) -> str
 

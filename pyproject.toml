@@ -2,7 +2,6 @@
 requires = [
     # N.B.: The lowest version of setuptools to support pyproject.toml [project] configuration.
     "setuptools>=61",
-    "typing-extensions",
 ]
 build-backend = "pexcz_build"
 backend-path = ["build-system"]
