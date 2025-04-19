@@ -11,11 +11,12 @@ import sysconfig
 from argparse import ArgumentParser
 from contextlib import contextmanager
 
-TYPING = False
-if TYPING:
+TYPE_CHECKING = False
+if TYPE_CHECKING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
     from typing import (  # noqa: F401
         Any,
+        DefaultDict,
         Dict,
         Iterable,
         Iterator,
@@ -139,7 +140,7 @@ def iter_macos_platform_tags():
     if version == (10, 16):
         # When built against an older macOS SDK, Python will report macOS 10.16
         # instead of the real version.
-        version_str = subprocess.check_output(
+        version_str_bytes = subprocess.check_output(
             [
                 sys.executable,
                 "-sS",
@@ -148,7 +149,7 @@ def iter_macos_platform_tags():
             ],
             env={"SYSTEM_VERSION_COMPAT": "0"},
         )
-        version = tuple(map(int, version_str.split(b".")[:2]))
+        version = tuple(map(int, version_str_bytes.split(b".")[:2]))
 
     arch = mac_arch(cpu_arch)
 
@@ -408,7 +409,7 @@ def get_glibc_version():
 # For now, guess what the highest minor version might be, assume it will
 # be 50 for testing. Once this actually happens, update the dictionary
 # with the actual value.
-_LAST_GLIBC_MINOR = collections.defaultdict(lambda: 50)
+_LAST_GLIBC_MINOR = collections.defaultdict(lambda: 50)  # type: DefaultDict[int, int]
 
 
 # From PEP 513, PEP 600
@@ -423,7 +424,7 @@ def is_glibc_version_compatible(
         return False
     # Check for presence of _manylinux module.
     try:
-        import _manylinux
+        import _manylinux  # type: ignore
     except ImportError:
         return True
     if hasattr(_manylinux, "manylinux_compatible"):
@@ -698,11 +699,12 @@ def interpreter_name():
     Some implementations have a reserved, two-letter abbreviation which will
     be returned when appropriate.
     """
-    return INTERPRETER_SHORT_NAMES.get(
+    long_name = (
         sys.implementation.name
         if hasattr(sys, "implementation")
         else platform.python_implementation().lower()
     )
+    return INTERPRETER_SHORT_NAMES.get(long_name, long_name)
 
 
 def cpython_tags(platforms):
@@ -850,7 +852,7 @@ IS_MAC = OS == "darwin"
 
 
 def main():
-    # type: () -> None
+    # type: () -> Any
 
     parser = ArgumentParser(prog="interpreter.py")
     parser.add_argument("output_path", nargs="?", default=None)
@@ -861,7 +863,7 @@ def main():
     @contextmanager
     def output(file_path=None):
         # type: (Optional[str]) -> Iterator[TextIO]
-        if path is None:
+        if file_path is None:
             yield sys.stdout
         else:
             with open(file_path, "w") as fp:

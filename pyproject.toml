@@ -83,7 +83,9 @@ args = [
     "mypy",
     "--python-version", "{-py:{markers.python_version}}",
     "--cache-dir", ".mypy_cache_{markers.python_version}",
+    "build-system",
     "python",
+    "src"
 ]
 
 [tool.dev-cmd.commands.pytest]

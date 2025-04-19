@@ -5,8 +5,8 @@ import tempfile
 
 from setuptools import setup
 
-TYPING = False
-if TYPING:
+TYPE_CHECKING = False
+if TYPE_CHECKING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
     from typing import Optional  # noqa: F401
 

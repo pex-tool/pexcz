@@ -16,8 +16,8 @@ import time
 import warnings
 from ctypes import cdll
 
-TYPING = False
-if TYPING:
+TYPE_CHECKING = False
+if TYPE_CHECKING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
     from typing import (  # noqa: F401
         Any,
