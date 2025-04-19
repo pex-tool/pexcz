@@ -2,6 +2,8 @@ from __future__ import absolute_import
 
 import setuptools.build_meta
 import zig
+
+# The following `setuptools.build_meta` imports are all public hook exports used by build frontends.
 from setuptools.build_meta import (  # noqa: F401
     get_requires_for_build_editable as get_requires_for_build_editable,
 )
