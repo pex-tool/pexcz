@@ -1,8 +1,11 @@
 import collections
+import functools
 import json
 import os
 import platform
 import re
+import struct
+import subprocess
 import sys
 import sysconfig
 from argparse import ArgumentParser
@@ -75,13 +78,229 @@ def identify(supported_tags):
 def iter_generic_platform_tags():
     # type: () -> Iterator[str]
 
-    return iter(())
+    yield normalize_string(sysconfig.get_platform())
+
+
+_32_BIT_INTERPRETER = struct.calcsize("P") == 4
+
+
+def mac_arch(arch):
+    # type: (str) -> str
+
+    if not _32_BIT_INTERPRETER:
+        return arch
+
+    if arch.startswith("ppc"):
+        return "ppc"
+
+    return "i386"
+
+
+def mac_binary_formats(
+    version,  # type: Tuple[int, int]
+    cpu_arch,  # type: str
+):
+    # type: (...) -> List[str]
+
+    formats = [cpu_arch]
+    if cpu_arch == "x86_64":
+        if version < (10, 4):
+            return []
+        formats.extend(["intel", "fat64", "fat32"])
+    elif cpu_arch == "i386":
+        if version < (10, 4):
+            return []
+        formats.extend(["intel", "fat32", "fat"])
+    elif cpu_arch == "ppc64":
+        # TODO: Need to care about 32-bit PPC for ppc64 through 10.2?
+        if version > (10, 5) or version < (10, 4):
+            return []
+        formats.append("fat64")
+    elif cpu_arch == "ppc":
+        if version > (10, 6):
+            return []
+        formats.extend(["fat32", "fat"])
+
+    if cpu_arch in {"arm64", "x86_64"}:
+        formats.append("universal2")
+
+    if cpu_arch in {"x86_64", "i386", "ppc64", "ppc", "intel"}:
+        formats.append("universal")
+
+    return formats
 
 
 def iter_macos_platform_tags():
     # type: () -> Iterator[str]
+    """Yields the platform tags for a macOS system."""
+    version_str, _, cpu_arch = platform.mac_ver()
 
-    return iter(())
+    version = tuple(map(int, version_str.split(".")[:2]))
+    if version == (10, 16):
+        # When built against an older macOS SDK, Python will report macOS 10.16
+        # instead of the real version.
+        version_str = subprocess.check_output(
+            [
+                sys.executable,
+                "-sS",
+                "-c",
+                "import platform; print(platform.mac_ver()[0])",
+            ],
+            env={"SYSTEM_VERSION_COMPAT": "0"},
+        )
+        version = tuple(map(int, version_str.split(b".")[:2]))
+
+    arch = mac_arch(cpu_arch)
+
+    if (10, 0) <= version < (11, 0):
+        # Prior to Mac OS 11, each yearly release of Mac OS bumped the
+        # "minor" version number.  The major version was always 10.
+        major_version = 10
+        for minor_version in range(version[1], -1, -1):
+            compat_version = major_version, minor_version
+            binary_formats = mac_binary_formats(compat_version, arch)
+            for binary_format in binary_formats:
+                yield "macosx_{major_version}_{minor_version}_{binary_format}".format(
+                    major_version=major_version,
+                    minor_version=minor_version,
+                    binary_format=binary_format,
+                )
+
+    if version >= (11, 0):
+        # Starting with Mac OS 11, each yearly release bumps the major version
+        # number.   The minor versions are now the midyear updates.
+        minor_version = 0
+        for major_version in range(version[0], 10, -1):
+            compat_version = major_version, minor_version
+            binary_formats = mac_binary_formats(compat_version, arch)
+            for binary_format in binary_formats:
+                yield "macosx_{major_version}_{minor_version}_{binary_format}".format(
+                    major_version=major_version,
+                    minor_version=minor_version,
+                    binary_format=binary_format,
+                )
+
+    if version >= (11, 0):
+        # Mac OS 11 on x86_64 is compatible with binaries from previous releases.
+        # Arm64 support was introduced in 11.0, so no Arm binaries from previous
+        # releases exist.
+        #
+        # However, the "universal2" binary format can have a
+        # macOS version earlier than 11.0 when the x86_64 part of the binary supports
+        # that version of macOS.
+        major_version = 10
+        if arch == "x86_64":
+            for minor_version in range(16, 3, -1):
+                compat_version = major_version, minor_version
+                binary_formats = mac_binary_formats(compat_version, arch)
+                for binary_format in binary_formats:
+                    yield "macosx_{major_version}_{minor_version}_{binary_format}".format(
+                        major_version=major_version,
+                        minor_version=minor_version,
+                        binary_format=binary_format,
+                    )
+        else:
+            for minor_version in range(16, 3, -1):
+                binary_format = "universal2"
+                yield "macosx_{major_version}_{minor_version}_{binary_format}".format(
+                    major_version=major_version,
+                    minor_version=minor_version,
+                    binary_format=binary_format,
+                )
+
+
+def iter_ios_platform_tags():
+    # type: () -> Iterator[str]
+    """Yields the platform tags for an iOS system."""
+
+    # if iOS is the current platform, ios_ver *must* be defined. However,
+    # it won't exist for CPython versions before 3.13, which causes a mypy
+    # error.
+    _, release, _, _ = platform.ios_ver()  # type: ignore[attr-defined, unused-ignore]
+    version = tuple(map(int, release.split(".")[:2]))
+
+    multiarch = sys.implementation._multiarch.replace("-", "_")
+
+    ios_platform_template = "ios_{major}_{minor}_{multiarch}"
+
+    # Consider any iOS major.minor version from the version requested, down to
+    # 12.0. 12.0 is the first iOS version that is known to have enough features
+    # to support CPython. Consider every possible minor release up to X.9. There
+    # highest the minor has ever gone is 8 (14.8 and 15.8) but having some extra
+    # candidates that won't ever match doesn't really hurt, and it saves us from
+    # having to keep an explicit list of known iOS versions in the code. Return
+    # the results descending order of version number.
+
+    # If the requested major version is less than 12, there won't be any matches.
+    if version[0] < 12:
+        return
+
+    # Consider the actual X.Y version that was requested.
+    yield ios_platform_template.format(major=version[0], minor=version[1], multiarch=multiarch)
+
+    # Consider every minor version from X.0 to the minor version prior to the
+    # version requested by the platform.
+    for minor in range(version[1] - 1, -1, -1):
+        yield ios_platform_template.format(major=version[0], minor=minor, multiarch=multiarch)
+
+    for major in range(version[0] - 1, 11, -1):
+        for minor in range(9, -1, -1):
+            yield ios_platform_template.format(major=major, minor=minor, multiarch=multiarch)
+
+
+def iter_android_platform_tags():
+    # type: () -> Iterator[str]
+    """Yields the :attr:`~Tag.platform` tags for Android."""
+    # Python 3.13 was the first version to return platform.system() == "Android",
+    # and also the first version to define platform.android_ver().
+    api_level = platform.android_ver().api_level  # type: ignore[attr-defined]
+
+    abi = normalize_string(sysconfig.get_platform().split("-")[-1])
+
+    # 16 is the minimum API level known to have enough features to support CPython
+    # without major patching. Yield every API level from the maximum down to the
+    # minimum, inclusive.
+    min_api_level = 16
+    for ver in range(api_level, min_api_level - 1, -1):
+        yield "android_{ver}_{abi}".format(ver=ver, abi=abi)
+
+
+def iter_linux_platform_tags(linux_info):
+    # type: (Dict[str, Any]) -> Iterator[str]
+
+    linux = normalize_string(sysconfig.get_platform())
+    if not linux.startswith("linux_"):
+        # we should never be here, just yield the sysconfig one and return
+        yield linux
+        return
+
+    if _32_BIT_INTERPRETER:
+        if linux == "linux_x86_64":
+            linux = "linux_i686"
+        elif linux == "linux_aarch64":
+            linux = "linux_armv8l"
+
+    _, arch = linux.split("_", 1)
+    arches = {"armv8l": ["armv8l", "armv7l"]}.get(arch, [arch])
+
+    manylinux = linux_info.get("manylinux")
+    if manylinux:
+        glibc = manylinux["glibc"]
+        glibc_version = (int(glibc["major"]), int(glibc["minor"])) if glibc else get_glibc_version()
+        armhf = bool(manylinux["armhf"])
+        i686 = bool(manylinux["i686"])
+        for tag in iter_manylinux_platform_tags(  # noqa: E731
+            current_glibc=glibc_version, armhf=armhf, i686=i686, arches=arches
+        ):
+            yield tag
+    else:
+        musllinux = linux_info["musllinux"]
+        musl_version = int(musllinux["major"]), int(musllinux["minor"])
+        for tag in iter_musllinux_platform_tags(musl_version, arches):  # noqa: E731
+            yield tag
+
+    for arch in arches:
+        yield "linux_{arch}".format(arch=arch)
 
 
 def current_arch():
@@ -93,9 +312,7 @@ def current_arch():
 
 def glibc_version_string_confstr():
     # type: () -> Optional[str]
-    """
-    Primary implementation of glibc_version_string using os.confstr.
-    """
+    """Primary implementation of glibc_version_string using os.confstr."""
     # os.confstr is quite a bit faster than ctypes.DLL. It's also less likely
     # to be broken or missing. This strategy is used in the standard library
     # platform module.
@@ -239,36 +456,45 @@ _MAJOR = 0
 _MINOR = 1
 
 
+def have_compatible_abi(
+    arches,  # type: Sequence[str]
+    armhf,  # type: bool
+    i686,  # type: bool
+):
+    # type: (...) -> bool
+
+    if "armv7l" in arches:
+        return armhf
+    if "i686" in arches:
+        return i686
+    allowed_arches = {
+        "x86_64",
+        "aarch64",
+        "ppc64",
+        "ppc64le",
+        "s390x",
+        "loongarch64",
+        "riscv64",
+    }
+    return any(arch in allowed_arches for arch in arches)
+
+
 def iter_manylinux_platform_tags(
     current_glibc,  # type: Tuple[int, int]
     armhf,  # type: bool
     i686,  # type: bool
+    arches,  # type: Sequence[str]
 ):
     # type: (...) -> Iterator[str]
 
-    arch = current_arch()
-
-    if armhf and arch != "armv7l":
-        return
-
-    if i686 and arch != "i686":
-        return
-
-    if arch not in (
-        "aarch64",
-        "armv7li686",
-        "loongarch64",
-        "ppc64",
-        "ppc64le",
-        "riscv64",
-        "s390x",
-        "x86_64",
-    ):
+    if not have_compatible_abi(arches, armhf, i686):
         return
 
     # Oldest glibc to be supported regardless of architecture is (2, 17).
-    # On x86/i686 also oldest glibc to be supported is (2, 5).
-    too_old_glibc2 = 2, 4 if arch in ("x86_64", "i686") else 16
+    too_old_glibc2 = 2, 16
+    if set(arches) & {"x86_64", "i686"}:
+        # On x86/i686 also oldest glibc to be supported is (2, 5).
+        too_old_glibc2 = 2, 4
 
     glibc_max_list = [current_glibc]
     # We can assume compatibility across glibc major versions.
@@ -280,31 +506,35 @@ def iter_manylinux_platform_tags(
     for glibc_major in range(current_glibc[_MAJOR] - 1, 1, -1):
         glibc_minor = _LAST_GLIBC_MINOR[glibc_major]
         glibc_max_list.append((glibc_major, glibc_minor))
-    for glibc_max in glibc_max_list:
-        if glibc_max[_MAJOR] == too_old_glibc2[_MAJOR]:
-            min_minor = too_old_glibc2[_MINOR]
-        else:
-            # For other glibc major versions the oldest supported is (x, 0).
-            min_minor = -1
-        for glibc_minor in range(glibc_max[_MINOR], min_minor, -1):
-            glibc_version = (glibc_max[_MAJOR], glibc_minor)
-            tag = "manylinux_{}_{}".format(*glibc_version)
-            if is_glibc_version_compatible(arch, current_glibc, glibc_version):
-                yield "{tag}_{arch}".format(tag=tag, arch=arch)
-            # Handle the legacy manylinux1, manylinux2010, manylinux2014 tags.
-            if glibc_version in _LEGACY_MANYLINUX_MAP:
-                legacy_tag = _LEGACY_MANYLINUX_MAP[glibc_version]
+    for arch in arches:
+        for glibc_max in glibc_max_list:
+            if glibc_max[_MAJOR] == too_old_glibc2[_MAJOR]:
+                min_minor = too_old_glibc2[_MINOR]
+            else:
+                # For other glibc major versions the oldest supported is (x, 0).
+                min_minor = -1
+            for glibc_minor in range(glibc_max[_MINOR], min_minor, -1):
+                glibc_version = (glibc_max[_MAJOR], glibc_minor)
+                tag = "manylinux_{}_{}".format(*glibc_version)
                 if is_glibc_version_compatible(arch, current_glibc, glibc_version):
-                    yield "{legacy_tag}_{arch}".format(legacy_tag=legacy_tag, arch=arch)
+                    yield "{tag}_{arch}".format(tag=tag, arch=arch)
+                # Handle the legacy manylinux1, manylinux2010, manylinux2014 tags.
+                if glibc_version in _LEGACY_MANYLINUX_MAP:
+                    legacy_tag = _LEGACY_MANYLINUX_MAP[glibc_version]
+                    if is_glibc_version_compatible(arch, current_glibc, glibc_version):
+                        yield "{legacy_tag}_{arch}".format(legacy_tag=legacy_tag, arch=arch)
 
 
-def iter_musllinux_platform_tags(version):
-    # type: (Tuple[int, int]) -> Iterator[str]
+def iter_musllinux_platform_tags(
+    version,  # type: Tuple[int, int]
+    arches,  # type: Sequence[str]
+):
+    # type: (...) -> Iterator[str]
 
     major, minor = version
-    arch = current_arch()
-    for minor in range(minor, -1, -1):
-        yield "musllinux_{major}_{minor}_{arch}".format(major=major, minor=minor, arch=arch)
+    for arch in arches:
+        for minor in range(minor, -1, -1):
+            yield "musllinux_{major}_{minor}_{arch}".format(major=major, minor=minor, arch=arch)
 
 
 INTERPRETER_SHORT_NAMES = {
@@ -341,11 +571,47 @@ def normalize_string(string):
     return string.replace(".", "_").replace("-", "_").replace(" ", "_")
 
 
+def is_threaded_cpython(abis):
+    # type: (List[str]) -> bool
+    """
+    Determine if the ABI corresponds to a threaded (`--disable-gil`) build.
+
+    The threaded builds are indicated by a "t" in the abiflags.
+    """
+    if len(abis) == 0:
+        return False
+    # expect e.g., cp313
+    m = re.match(r"cp\d+(.*)", abis[0])
+    if not m:
+        return False
+    abiflags = m.group(1)
+    return "t" in abiflags
+
+
+def abi3_applies(
+    python_version,  # type: Sequence[int]
+    threading,  # type: bool
+):
+    # type: (...) -> bool
+    """
+    Determine if the Python version supports abi3.
+
+    PEP 384 was first implemented in Python 3.2. The threaded (`--disable-gil`)
+    builds do not support abi3.
+    """
+    return len(python_version) > 1 and tuple(python_version) >= (3, 2) and not threading
+
+
 def cpython_abis(py_version):
     # type: (Sequence[int]) -> List[str]
 
-    # TODO: XXX: Not available in older Pythons.
-    from importlib.machinery import EXTENSION_SUFFIXES
+    try:
+        from importlib.machinery import EXTENSION_SUFFIXES
+    except ImportError:
+        import imp
+
+        EXTENSION_SUFFIXES = [x[0] for x in imp.get_suffixes()]
+        del imp
 
     py_version = tuple(py_version)  # To allow for version comparison.
     abis = []
@@ -441,8 +707,49 @@ def interpreter_name():
 
 def cpython_tags(platforms):
     # type: (Iterable[str]) -> Iterator[Tuple[str, str, str]]
+    """Yields the tags for a CPython interpreter.
 
-    return iter(())
+    The tags consist of:
+    - cp<python_version>-<abi>-<platform>
+    - cp<python_version>-abi3-<platform>
+    - cp<python_version>-none-<platform>
+    - cp<less than python_version>-abi3-<platform>  # Older Python versions down to 3.2.
+    """
+    python_version = sys.version_info[:2]
+
+    interpreter = "cp{version_nodot}".format(version_nodot=version_nodot(python_version[:2]))
+
+    if len(python_version) > 1:
+        abis = cpython_abis(python_version)
+    else:
+        abis = []
+
+    abis = list(abis)
+    # 'abi3' and 'none' are explicitly handled later.
+    for explicit_abi in ("abi3", "none"):
+        try:
+            abis.remove(explicit_abi)
+        except ValueError:
+            pass
+
+    for abi in abis:
+        for platform_ in platforms:
+            yield interpreter, abi, platform_
+
+    threading = is_threaded_cpython(abis)
+    use_abi3 = abi3_applies(python_version, threading)
+    if use_abi3:
+        for platform_ in platforms:
+            yield interpreter, "abi3", platform_
+    for platform_ in platforms:
+        yield interpreter, "none", platform_
+
+    if use_abi3:
+        for minor_version in range(python_version[1] - 1, 1, -1):
+            for platform_ in platforms:
+                version = version_nodot((python_version[0], minor_version))
+                interpreter = "cp{version}".format(version=version)
+                yield interpreter, "abi3", platform_
 
 
 def generic_tags(platforms):
@@ -525,7 +832,7 @@ def iter_supported_tags(platforms):
         for tag in generic_tags(platforms):
             yield tag
 
-    if interp_name == "pp":
+    if interp_name == "pp" and sys.version_info[0] == 3:
         interp = "pp3"
     elif interp_name == "cp":
         interp = "cp" + interpreter_version()
@@ -536,8 +843,10 @@ def iter_supported_tags(platforms):
 
 
 OS = platform.system().lower()
+IS_ANDROID = OS == "android"
+IS_IOS = OS == "ios"
 IS_LINUX = OS == "linux"
-IS_MAC = not IS_LINUX and OS == "darwin"
+IS_MAC = OS == "darwin"
 
 
 def main():
@@ -559,26 +868,17 @@ def main():
                 yield fp
 
     path = options.output_path  # type: Optional[str]
-    iter_supported_platform_tags = (
-        iter_macos_platform_tags if IS_MAC else iter_generic_platform_tags
-    )
-    if IS_LINUX:
+    if IS_ANDROID:
+        iter_supported_platform_tags = iter_android_platform_tags
+    elif IS_IOS:
+        iter_supported_platform_tags = iter_ios_platform_tags
+    elif IS_MAC:
+        iter_supported_platform_tags = iter_macos_platform_tags
+    elif IS_LINUX:
         linux_info = json.loads(options.linux_info)
-        manylinux = linux_info.get("manylinux")
-        if manylinux:
-            glibc = manylinux["glibc"]
-            glibc_version = (
-                (int(glibc["major"]), int(glibc["minor"])) if glibc else get_glibc_version()
-            )
-            armhf = bool(manylinux["armhf"])
-            i686 = bool(manylinux["i686"])
-            iter_supported_platform_tags = lambda: iter_manylinux_platform_tags(  # noqa: E731
-                current_glibc=glibc_version, armhf=armhf, i686=i686
-            )
-        else:
-            musllinux = linux_info["musllinux"]
-            musl_version = int(musllinux["major"]), int(musllinux["minor"])
-            iter_supported_platform_tags = lambda: iter_musllinux_platform_tags(musl_version)  # noqa: E731
+        iter_supported_platform_tags = functools.partial(iter_linux_platform_tags, linux_info)
+    else:
+        iter_supported_platform_tags = iter_generic_platform_tags
 
     with output(file_path=path) as out:
         json.dump(identify(list(iter_supported_tags(tuple(iter_supported_platform_tags())))), out)

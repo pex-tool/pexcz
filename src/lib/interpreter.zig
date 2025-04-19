@@ -559,10 +559,21 @@ test "compare with packaging" {
         );
         defer parsed_tags.deinit();
 
-        std.debug.print(">>> Packaging parsed {d} tags:\n", .{parsed_tags.value.len});
+        const packaging_results = try std.fs.cwd().createFile("/tmp/packaging-results.txt", .{});
+        defer packaging_results.close();
+        var packaging_results_log = std.io.bufferedWriter(packaging_results.writer());
         for (parsed_tags.value) |tag| {
-            std.debug.print("  {}\n", .{tag});
+            try packaging_results_log.writer().print("  {}\n", .{tag});
         }
+        try packaging_results_log.flush();
+
+        const our_results = try std.fs.cwd().createFile("/tmp/our-results.txt", .{});
+        defer our_results.close();
+        var our_results_log = std.io.bufferedWriter(our_results.writer());
+        for (interpreter.value.supported_tags) |tag| {
+            try our_results_log.writer().print("  {}\n", .{tag});
+        }
+        try our_results_log.flush();
 
         try std.testing.expectEqualDeep(parsed_tags.value, interpreter.value.supported_tags);
         tmpdir.cleanup();
