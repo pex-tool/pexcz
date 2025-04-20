@@ -22,7 +22,7 @@ pub const Tag = struct {
     }
 
     pub fn jsonParse(
-        _: std.mem.Allocator,
+        allocator: std.mem.Allocator,
         source: *std.json.Scanner,
         _: std.json.ParseOptions,
     ) !Self {
@@ -33,7 +33,11 @@ pub const Tag = struct {
                     if (iter.next()) |abi| {
                         if (iter.next()) |platform| {
                             if (iter.next() == null) {
-                                return .{ .python = python, .abi = abi, .platform = platform };
+                                return .{
+                                    .python = try allocator.dupe(u8, python),
+                                    .abi = try allocator.dupe(u8, abi),
+                                    .platform = try allocator.dupe(u8, platform),
+                                };
                             }
                         }
                     }

@@ -27,6 +27,6 @@ pub fn parse(allocator: std.mem.Allocator, data: []const u8) !std.json.Parsed(Pe
         PexInfo,
         allocator,
         data,
-        .{ .ignore_unknown_fields = true },
+        .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
     );
 }
