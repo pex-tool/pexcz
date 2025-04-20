@@ -4,7 +4,9 @@ const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
 pub const Marker = @import("pep-508/Marker.zig");
-pub const Tag = @import("pep-425.zig").Tag;
+pub const PEP_425 = @import("pep-425.zig");
+pub const Tag = PEP_425.Tag;
+pub const RankedTags = PEP_425.RankedTags;
 const TempDirs = @import("fs.zig").TempDirs;
 const cache = @import("cache.zig");
 const getenv = @import("os.zig").getenv;
@@ -321,6 +323,10 @@ pub const Interpreter = struct {
             data,
             .{ .allocate = .alloc_always },
         );
+    }
+
+    pub fn ranked_tags(self: Self, allocator: std.mem.Allocator) !RankedTags {
+        return RankedTags.init(allocator, self.supported_tags);
     }
 };
 
