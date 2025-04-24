@@ -41,6 +41,7 @@ pub fn bootPexZPosix(
     python_exe_path: [*:0]const u8,
     pex_path: [*:0]const u8,
     environ: ?Environ,
+    argv: [][*:0]u8,
 ) !noreturn {
     const allocator = alloc.allocator();
 
@@ -59,20 +60,25 @@ pub fn bootPexZPosix(
     const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
     defer boot_spec.deinit();
 
-    // TODO: XXX: incorporate original_argv.
-    var argv = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, 2);
-    defer argv.deinit();
+    var exec_argv = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, 2 + argv.len);
+    defer exec_argv.deinit();
 
-    try argv.append(boot_spec.python_exe);
-    try argv.append(boot_spec.main_py);
-    try argv.append(null);
+    try exec_argv.append(boot_spec.python_exe);
+    std.debug.print(">>> argv[0]: {s}\n", .{boot_spec.python_exe});
+    try exec_argv.append(boot_spec.main_py);
+    std.debug.print(">>> argv[1]: {s}\n", .{boot_spec.main_py});
+    for (argv[2..], 2..) |arg, index| {
+        std.debug.print(">>> arg[{d}]: {s}\n", .{ index, arg });
+        try exec_argv.append(arg);
+    }
+    try exec_argv.append(null);
 
     log.info("Bytes used: {d}", .{alloc.bytes_used()});
     if (timer.*) |*elpased| log.info(
         "C boot({s}, {s}, ...) pre-exec took {d:.3}µs",
         .{ python_exe_path, pex_path, elpased.read() / 1_000 },
     );
-    return std.posix.execvpeZ(boot_spec.python_exe, @ptrCast(argv.items), envp);
+    return std.posix.execvpeZ(boot_spec.python_exe, @ptrCast(exec_argv.items), envp);
 }
 
 const BootSpec = struct {
@@ -166,13 +172,15 @@ fn setupBoot(
 
         fn install(work_path: []const u8, work_dir: std.fs.Dir, self: Self) !void {
             std.debug.print("Installing {s} to {s} with tags:\n", .{ self.venv_pex.pex_path, work_path });
-            _ = try self.venv_pex.install(
+            const venv = try self.venv_pex.install(
                 self.allocator,
                 self.dest_path,
+                work_path,
                 work_dir,
                 self.interpreter,
                 false,
             );
+            venv.deinit();
         }
     };
     const func: Fn = .{

@@ -38,13 +38,15 @@ fn inject(
 ) !void {
     var zip_file = try std.fs.cwd().openFile(pex, .{});
     defer zip_file.close();
+
     const zip_stream = zip_file.seekableStream();
-    const zip = try pexcz.ZipFile.init(allocator, zip_stream);
+    var zip = try pexcz.ZipFile.init(allocator, zip_stream);
+    defer zip.deinit(allocator);
+
     const zip_entries = zip.entries();
 
     var pool: std.Thread.Pool = undefined;
-    try std.Thread.Pool.init(
-        &pool,
+    try pool.init(
         .{
             .allocator = allocator,
             .n_jobs = @min(zip_entries.len, std.Thread.getCpuCount() catch 1),
@@ -69,6 +71,7 @@ fn inject(
 
     var temp_dirs = pexcz.fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
+
     const temp_path = try temp_dirs.mkdtemp(false);
     var wg = std.Thread.WaitGroup{};
     next_entry: for (zip_entries) |zip_entry| {
@@ -84,7 +87,7 @@ fn inject(
         }
         pool.spawnWg(&wg, Zip.extract, .{ zip_entry, pex, temp_path });
     }
-    wg.wait();
+    pool.waitAndWork(&wg);
     std.debug.print("Extracted {s} to {s}\n", .{ pex, temp_path });
     std.debug.print("TODO: XXX: inject a pexcz bootstrap in: {s}\n", .{pex});
     _ = pexcz_python_pkg_root;

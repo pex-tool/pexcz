@@ -50,12 +50,14 @@ pub const Tag = struct {
 };
 
 pub fn parse_wheel_tags(allocator: std.mem.Allocator, wheel_name: []const u8) ![]const Tag {
+    var tags = std.ArrayList(Tag).init(allocator);
+    defer tags.deinit();
+
     var components = std.mem.splitBackwardsScalar(
         u8,
         wheel_name[0 .. wheel_name.len - ".whl".len],
         '-',
     );
-    var tags = std.ArrayList(Tag).init(allocator);
     if (components.next()) |platforms| {
         var platforms_iter = std.mem.splitScalar(u8, platforms, '.');
         while (platforms_iter.next()) |platform| {

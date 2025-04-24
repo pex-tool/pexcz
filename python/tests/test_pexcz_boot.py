@@ -17,10 +17,25 @@ def test_boot(tmpdir):
     # type: (Any) -> None
 
     pex = os.path.join(str(tmpdir), "cowsay.pex")
-    subprocess.check_call(args=["pex", "cowsay<6", "-c", "cowsay", "-o", pex, "--venv", "prepend"])
+    pex_root = os.path.join(str(tmpdir), "pex_root")
+    # subprocess.check_call(args=["pex", "cowsay<6", "-c", "cowsay", "-o", pex, "--venv", "prepend", "--runtime-pex-root", pex_root])  # ~6.5x faster
+    subprocess.check_call(
+        args=[
+            "pex",
+            "torch",
+            "-o",
+            pex,
+            "--venv",
+            "prepend",
+            "--venv-site-packages-copies",
+            "--runtime-pex-root",
+            pex_root,
+        ]
+    )
 
     start = time.time()
-    subprocess.check_call(args=[sys.executable, pex, "-t", "Moo!"])
+    # subprocess.check_call(args=[pex, "Moo!"])
+    subprocess.check_call(args=[pex, "-c", "import torch; print(torch.__file__)"])
     print(
         "Traditional PEX run took {elapsed:.5}ms".format(elapsed=(time.time() - start) * 1000),
         file=sys.stderr,
@@ -33,7 +48,10 @@ def test_boot(tmpdir):
         args=[
             sys.executable,
             "-c",
-            "import sys, pexcz; pexcz.boot(r'{pex}', args=['-t', 'Moo!'])".format(pex=pex),
+            # "import sys, pexcz; pexcz.boot(r'{pex}', args=['Moo!'])".format(pex=pex),
+            "import sys, pexcz; pexcz.boot(r'{pex}', args=['-c', 'import torch; print(torch.__file__)'])".format(
+                pex=pex
+            ),
         ],
         cwd=python_source_root,
     )

@@ -58,16 +58,19 @@ fn bootPosix(
     envp: [*:null]?[*:0]const u8,
 ) callconv(.c) c_int {
     var timer = std.time.Timer.start() catch null;
+    defer if (timer) |*elpased| log.info(
+        "C boot({s}, {s}, ...) took {d:.3}µs",
+        .{ python, pex, elpased.read() / 1_000 },
+    );
 
     var alloc = pexcz.Allocator.init();
     defer alloc.deinit();
 
     const environ = if (!builtin.link_libc) pexcz.Environ{
-        .argv = argv,
         .envp = envp,
     } else null;
 
-    return pexcz.bootPexZPosix(&alloc, &timer, python, pex, environ) catch |err| {
+    return pexcz.bootPexZPosix(&alloc, &timer, python, pex, environ, pexcz.sliceZ(argv)) catch |err| {
         log.err(
             "Failed to boot {[pex]s} using {[python]s}: {[err]}",
             .{ .pex = pex, .python = python, .err = err },

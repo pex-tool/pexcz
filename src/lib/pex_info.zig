@@ -15,11 +15,13 @@ pub const PexInfo = struct {
     venv_hermetic_scripts: bool,
     venv_bin_path: ?BinPath,
     deps_are_wheel_files: bool,
-    entry_point: []const u8,
     inherit_path: ?InheritPath,
     inject_python_args: []const []const u8,
     inject_args: []const []const u8,
     inject_env: std.json.ArrayHashMap([]const u8),
+    entry_point: ?[]const u8 = null,
+    script: ?[]const u8 = null,
+    strip_pex_env: ?bool = null,
 };
 
 pub fn parse(allocator: std.mem.Allocator, data: []const u8) !std.json.Parsed(PexInfo) {
