@@ -34,7 +34,9 @@ const Arena = struct {
     const Self = @This();
 
     pub fn init() Self {
-        return .{ .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator) };
+        return .{ .arena = std.heap.ArenaAllocator.init(
+            if (builtin.link_libc) std.heap.c_allocator else std.heap.page_allocator,
+        ) };
     }
 
     pub fn deinit(self: *Self) void {
