@@ -3,8 +3,8 @@ const std = @import("std");
 
 const Environ = @import("process.zig").Environ;
 const Interpreter = @import("interpreter.zig").Interpreter;
-const VenvPex = @import("Virtualenv.zig").VenvPex;
-const Virtualenv = @import("Virtualenv.zig").Virtualenv;
+const VenvPex = @import("VenvPex.zig");
+const Virtualenv = @import("Virtualenv.zig");
 const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
 const cache = @import("cache.zig");
 const fs = @import("fs.zig");

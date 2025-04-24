@@ -488,7 +488,7 @@ pub const InterpreterIter = struct {
 };
 
 test "compare with packaging" {
-    const Virtualenv = @import("Virtualenv.zig").Virtualenv;
+    const Virtualenv = @import("Virtualenv.zig");
 
     var interpreters = try InterpreterIter.from_search_path(std.testing.allocator, null);
     defer interpreters.deinit();
