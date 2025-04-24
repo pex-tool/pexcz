@@ -72,6 +72,10 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         clib.root_module.addImport("pexcz", lib);
+        // Currently we need to do this to work around SIGABRT / SIGSEGV issues coming from Zig
+        // Linux thread spawning code when initializing thread pools while loaded as a library from
+        // Python.
+        clib.linkLibC();
         const clib_output = b.addInstallArtifact(clib, .{
             .dest_dir = .{
                 .override = .{
