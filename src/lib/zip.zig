@@ -102,6 +102,22 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                 allocator: std.mem.Allocator,
                 stream: SeekableZipStream,
             ) ![]const u8 {
+                const buffer = try allocator.alloc(
+                    u8,
+                    // N.B.: Guarded at function entrance with a check and early error.
+                    @intCast(self.entry.uncompressed_size),
+                );
+                errdefer allocator.free(buffer);
+                var writer = std.io.fixedBufferStream(buffer);
+                try self.extract_to_writer(stream, writer.writer());
+                return buffer;
+            }
+
+            pub fn extract_to_writer(
+                self: @This(),
+                stream: SeekableZipStream,
+                writer: anytype
+            ) !void {
                 if (self.entry.uncompressed_size > std.math.maxInt(usize)) {
                     return error.EntryTooBig;
                 }
@@ -206,23 +222,13 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                     self.entry.compressed_size,
                 );
 
-                const buffer = try allocator.alloc(
-                    u8,
-                    // N.B.: Guarded at function entrance with a check and early error.
-                    @intCast(self.entry.uncompressed_size),
-                );
-                errdefer allocator.free(buffer);
-                var writer = std.io.fixedBufferStream(buffer);
-
                 const crc32 = try std.zip.decompress(
                     self.entry.compression_method,
                     self.entry.uncompressed_size,
                     limited_reader.reader(),
-                    writer.writer(),
+                    writer,
                 );
                 std.debug.assert(crc32 == self.entry.crc32);
-
-                return buffer;
             }
         };
 
