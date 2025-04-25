@@ -143,7 +143,7 @@ pub fn install(
         fn install_safe(
             alloc: std.mem.Allocator,
             wp: []const u8,
-            virtualenv: Virtualenv,
+            virtualenv: *const Virtualenv,
             site_packages_dir_path: []const u8,
             entry_name: []const u8,
         ) void {
@@ -163,7 +163,7 @@ pub fn install(
         fn install(
             alloc: std.mem.Allocator,
             wp: []const u8,
-            virtualenv: Virtualenv,
+            virtualenv: *const Virtualenv,
             site_packages_dir_path: []const u8,
             entry_name: []const u8,
         ) !void {
@@ -173,10 +173,10 @@ pub fn install(
             var site_packages = try std.fs.cwd().openDir(site_packages_dir_path, .{});
             defer site_packages.close();
 
-            var deps_dir = try site_packages.openDir(".deps", .{});
-            defer deps_dir.close();
+            const wheel_dir_relpath = try std.fs.path.join(alloc, &.{".deps", entry_name});
+            defer alloc.free(wheel_dir_relpath);
 
-            var wheel_dir = try deps_dir.openDir(entry_name, .{ .iterate = true });
+            var wheel_dir = try site_packages.openDir(wheel_dir_relpath, .{ .iterate = true });
             defer wheel_dir.close();
 
             var wheel_dir_iter = wheel_dir.iterate();
@@ -283,10 +283,12 @@ pub fn install(
         }
     }
 
+    wg.reset();
     for (deps.items) |dep| {
-        pool.spawnWg(&wg, Wheel.install_safe, .{ allocator, work_path, venv, site_packages_path, dep });
+        pool.spawnWg(&wg, Wheel.install_safe, .{ allocator, work_path, &venv, site_packages_path, dep });
     }
     pool.waitAndWork(&wg);
+
     try site_packages_dir.deleteTree(".deps");
 
     // TODO: XXX: Unhack script installation - actually use entry_point.txt metadata and deal with Windows.
