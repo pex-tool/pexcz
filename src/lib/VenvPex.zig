@@ -150,16 +150,17 @@ pub fn install(
             site_packages_dir_path: []const u8,
             entry_name: []const u8,
         ) void {
-            var thread_allocator = std.heap.ArenaAllocator.init(alloc);
-            defer thread_allocator.deinit();
             return @This().install(
-                thread_allocator.allocator(),
+                alloc,
                 wp,
                 virtualenv,
                 site_packages_dir_path,
                 entry_name,
             ) catch |err| {
-                std.debug.print("Failed to install wheel {s}: {}\n", .{ entry_name, err });
+                std.debug.print(
+                    ">>> [{d}] Failed to install wheel {s}: {}\n",
+                    .{ std.Thread.getCurrentId(), entry_name, err },
+                );
             };
         }
 
@@ -295,12 +296,13 @@ pub fn install(
         }
     }
 
+    var alloc: std.heap.ThreadSafeAllocator = .{ .child_allocator = allocator };
     wg.reset();
     for (deps.items) |dep| {
         pool.spawnWg(
             &wg,
             Wheel.install_safe,
-            .{ allocator, work_path, &venv, site_packages_path, dep },
+            .{ alloc.allocator(), work_path, &venv, site_packages_path, dep },
         );
     }
     pool.waitAndWork(&wg);

@@ -22,6 +22,8 @@ def test_boot(tmpdir):
         args=[
             "pex",
             "cowsay<6",
+            "requests",
+            "ansible",
             "-c",
             "cowsay",
             "-o",
