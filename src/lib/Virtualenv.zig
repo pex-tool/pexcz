@@ -57,7 +57,7 @@ pub fn load(allocator: std.mem.Allocator, venv_dir: std.fs.Dir) !Self {
     while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
         const home_key = "home = ";
         const interpreter_relpath_key = "interpreter-relpath = ";
-        const site_packages_relpath_key = "site-packaes-relpath = ";
+        const site_packages_relpath_key = "site-packages-relpath = ";
         if (std.mem.startsWith(u8, line, home_key)) {
             var home = try venv_dir.openDir(
                 std.mem.trimRight(u8, line[home_key.len..line.len], "\r"),

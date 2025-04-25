@@ -113,11 +113,7 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                 return buffer;
             }
 
-            pub fn extract_to_writer(
-                self: @This(),
-                stream: SeekableZipStream,
-                writer: anytype
-            ) !void {
+            pub fn extract_to_writer(self: @This(), stream: SeekableZipStream, writer: anytype) !void {
                 if (self.entry.uncompressed_size > std.math.maxInt(usize)) {
                     return error.EntryTooBig;
                 }

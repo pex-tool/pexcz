@@ -64,11 +64,8 @@ pub fn bootPexZPosix(
     defer exec_argv.deinit();
 
     try exec_argv.append(boot_spec.python_exe);
-    std.debug.print(">>> argv[0]: {s}\n", .{boot_spec.python_exe});
     try exec_argv.append(boot_spec.main_py);
-    std.debug.print(">>> argv[1]: {s}\n", .{boot_spec.main_py});
-    for (argv[2..], 2..) |arg, index| {
-        std.debug.print(">>> arg[{d}]: {s}\n", .{ index, arg });
+    for (argv[2..]) |arg| {
         try exec_argv.append(arg);
     }
     try exec_argv.append(null);

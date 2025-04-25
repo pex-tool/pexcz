@@ -31,7 +31,7 @@ def test_boot(tmpdir):
             "--runtime-pex-root",
             pex_root,
         ]
-    )  # ~6.5x faster
+    )  # ~12x faster
     # subprocess.check_call(
     #     args=[
     #         "pex",

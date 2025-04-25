@@ -21,6 +21,8 @@ pub fn init(pex_path: [*:0]const u8, pex_info: PexInfo) !Self {
     return .{ .pex_path = std.mem.span(pex_path), .pex_info = pex_info };
 }
 
+const log = std.log.scoped(.venv_pex);
+
 pub fn install(
     self: Self,
     allocator: std.mem.Allocator,
@@ -30,16 +32,16 @@ pub fn install(
     interpreter: Interpreter,
     include_pip: bool,
 ) !Virtualenv {
+    var timer = try std.time.Timer.start();
+    defer log.info(
+        "VenvPex.install({s}, ...) took {d:.3}ms",
+        .{ self.pex_path, timer.read() / 1_000_000 },
+    );
+
     const venv = try Virtualenv.create(allocator, interpreter, work_dir, include_pip);
     errdefer venv.deinit();
 
-    const venv_interpreter_path = try std.fs.path.join(allocator, &.{ work_path, venv.interpreter_relpath });
-    defer allocator.free(venv_interpreter_path);
-
-    const venv_interpreter = try Interpreter.identify(allocator, venv_interpreter_path);
-    defer venv_interpreter.deinit();
-
-    var ranked_tags = try venv_interpreter.value.ranked_tags(allocator);
+    var ranked_tags = try interpreter.ranked_tags(allocator);
     defer ranked_tags.deinit();
 
     var zip_file = try std.fs.cwd().openFile(self.pex_path, .{});
@@ -138,6 +140,7 @@ pub fn install(
         }
     }
     pool.waitAndWork(&wg);
+    log.info("VenvPex unzip took {d:.3}ms", .{timer.read() / 1_000_000});
 
     const Wheel = struct {
         fn install_safe(
@@ -173,7 +176,7 @@ pub fn install(
             var site_packages = try std.fs.cwd().openDir(site_packages_dir_path, .{});
             defer site_packages.close();
 
-            const wheel_dir_relpath = try std.fs.path.join(alloc, &.{".deps", entry_name});
+            const wheel_dir_relpath = try std.fs.path.join(alloc, &.{ ".deps", entry_name });
             defer alloc.free(wheel_dir_relpath);
 
             var wheel_dir = try site_packages.openDir(wheel_dir_relpath, .{ .iterate = true });
@@ -210,7 +213,10 @@ pub fn install(
                         if (prefix_entry.kind == .directory) {
                             continue;
                         }
-                        const prefix_entry_path = try std.fs.path.join(alloc, &.{ prefix_dir_path, prefix_entry.path });
+                        const prefix_entry_path = try std.fs.path.join(
+                            alloc,
+                            &.{ prefix_dir_path, prefix_entry.path },
+                        );
                         defer alloc.free(prefix_entry_path);
 
                         if (std.fs.path.dirname(prefix_entry.path)) |parent_dir_relpath| {
@@ -220,7 +226,10 @@ pub fn install(
                     }
                 } else {
                     if (wheel_entry.kind == .directory) {
-                        var wheel_entry_dir = try wheel_dir.openDir(wheel_entry.name, .{ .iterate = true });
+                        var wheel_entry_dir = try wheel_dir.openDir(
+                            wheel_entry.name,
+                            .{ .iterate = true },
+                        );
                         defer wheel_entry_dir.close();
 
                         var wheel_entry_dir_walker = try wheel_entry_dir.walk(alloc);
@@ -244,7 +253,10 @@ pub fn install(
                             if (wheel_entry_dir_entry.kind == .directory) {
                                 continue;
                             }
-                            const wheel_entry_path = try std.fs.path.join(alloc, &.{ wheel_entry_dir_path, wheel_entry_dir_entry.path });
+                            const wheel_entry_path = try std.fs.path.join(
+                                alloc,
+                                &.{ wheel_entry_dir_path, wheel_entry_dir_entry.path },
+                            );
                             defer alloc.free(wheel_entry_path);
 
                             if (std.fs.path.dirname(wheel_entry_dir_entry.path)) |parent_dir| {
@@ -285,9 +297,14 @@ pub fn install(
 
     wg.reset();
     for (deps.items) |dep| {
-        pool.spawnWg(&wg, Wheel.install_safe, .{ allocator, work_path, &venv, site_packages_path, dep });
+        pool.spawnWg(
+            &wg,
+            Wheel.install_safe,
+            .{ allocator, work_path, &venv, site_packages_path, dep },
+        );
     }
     pool.waitAndWork(&wg);
+    log.info("VenvPex unzip and spread took {d:.3}ms", .{timer.read() / 1_000_000});
 
     try site_packages_dir.deleteTree(".deps");
 
@@ -377,6 +394,11 @@ pub fn install(
             }
         }
     }
+
+    log.info(
+        "VenvPex unzip and spread and script re-write took {d:.3}ms",
+        .{timer.read() / 1_000_000},
+    );
 
     const main_py = try work_dir.createFile(Self.main_py_relpath, .{});
     errdefer main_py.close();
