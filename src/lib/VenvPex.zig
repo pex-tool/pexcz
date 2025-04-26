@@ -2,13 +2,14 @@ const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
 const Interpreter = @import("interpreter.zig").Interpreter;
+const PEP_503 = @import("pep-503.zig");
 const PexInfo = @import("pex_info.zig").PexInfo;
-const PEP_425 = @import("pep-425.zig");
-const Tag = PEP_425.Tag;
-const parse_wheel_tags = PEP_425.parse_wheel_tags;
-const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
-const Virtualenv = @import("Virtualenv.zig");
+const Tag = PEP_503.Tag;
 const VENV_PEX_PY = @embedFile("venv_pex.py");
+const Virtualenv = @import("Virtualenv.zig");
+const WheelInfo = PEP_503.WheelInfo;
+const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
+const parse_wheel_name = PEP_503.parse_wheel_name;
 
 pub const main_py_relpath = "__main__.py";
 
@@ -65,18 +66,29 @@ pub fn install(
     }
 
     for (self.pex_info.distributions.map.keys()) |wheel_name| {
-        const wheel_tags = try parse_wheel_tags(allocator, wheel_name);
-        defer allocator.free(wheel_tags);
+        const wheel_info = try WheelInfo.parse(allocator, wheel_name);
+        defer wheel_info.deinit();
 
-        for (wheel_tags) |wheel_tag| {
-            if (ranked_tags.rank(wheel_tag)) |rank| {
+        for (wheel_info.tags) |tag| {
+            if (ranked_tags.rank(tag)) |rank| {
                 std.debug.print(
-                    "{d} {s} <- {s} matches {s}\n",
-                    .{ rank, wheel_tag, wheel_name, interpreter.path },
+                    "{d} {s} {s} (raw: {s}) <- {s} matches {s}\n",
+                    .{
+                        rank,
+                        tag,
+                        wheel_info.project_name.value,
+                        wheel_info.project_name.raw,
+                        wheel_name,
+                        interpreter.path,
+                    },
                 );
                 const wheel_prefix = try std.fmt.allocPrint(allocator, ".deps/{s}", .{wheel_name});
 
-                const wheel_layout = try std.fmt.allocPrint(allocator, "{s}/.layout.json", .{wheel_prefix});
+                const wheel_layout = try std.fmt.allocPrint(
+                    allocator,
+                    "{s}/.layout.json",
+                    .{wheel_prefix},
+                );
                 defer allocator.free(wheel_layout);
 
                 if (zip.entry(wheel_layout)) |entry| {

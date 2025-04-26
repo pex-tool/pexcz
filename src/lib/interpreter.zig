@@ -3,14 +3,14 @@ const Elf64_Ehdr = std.elf.Elf64_Ehdr;
 const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
-pub const Marker = @import("pep-508/Marker.zig");
-pub const PEP_425 = @import("pep-425.zig");
-pub const Tag = PEP_425.Tag;
-pub const RankedTags = PEP_425.RankedTags;
 const TempDirs = @import("fs.zig").TempDirs;
 const cache = @import("cache.zig");
 const getenv = @import("os.zig").getenv;
 const subprocess = @import("subprocess.zig");
+pub const Marker = @import("pep-508/Marker.zig");
+pub const PEP_503 = @import("pep-503.zig");
+pub const RankedTags = PEP_503.RankedTags;
+pub const Tag = PEP_503.Tag;
 
 const Version = struct {
     major: u8,
