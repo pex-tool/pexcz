@@ -22,14 +22,39 @@ pub fn init(pex_path: [*:0]const u8, pex_info: PexInfo) !Self {
 
 const log = std.log.scoped(.venv_pex);
 
+const WheelLayout = struct {
+    // N.B.: The full PEX installed wheel chroot layout as of this writing:
+    // {
+    //   "fingerprint": "a9e2c24b6a2fad1b6f19dd0af921302834025951844ee6392a7a2d5a87b62bf3",
+    //   "record_relpath": "cowsay-5.0.dist-info/RECORD",
+    //   "root_is_purelib": true,
+    //   "stash_dir": ".prefix"
+    // }
+    stash_dir: ?[]const u8 = null,
+};
+
+const WheelToInstall = struct {
+    allocator: std.mem.Allocator,
+    prefix: []const u8,
+    stash_dir: ?[]const u8,
+
+    fn deinit(self: @This()) void {
+        self.allocator.free(self.prefix);
+        if (self.stash_dir) |stash_dir| {
+            self.allocator.free(stash_dir);
+        }
+    }
+};
+
 const WheelsToInstall = struct {
     allocator: std.mem.Allocator,
-    entries: []const []const u8,
+    entries: []const WheelToInstall,
 
     fn deinit(self: @This()) void {
         for (self.entries) |entry| {
-            self.allocator.free(entry);
+            entry.deinit();
         }
+        self.allocator.free(self.entries);
     }
 };
 
@@ -43,16 +68,11 @@ fn selectWheelsToInstall(
     var ranked_tags = try interpreter.ranked_tags(allocator);
     defer ranked_tags.deinit();
 
-    var wheels_to_install = try std.ArrayList([]const u8).initCapacity(
+    var wheels_to_install = try std.ArrayList(WheelToInstall).initCapacity(
         allocator,
         self.pex_info.distributions.map.count(),
     );
-    defer {
-        for (wheels_to_install.items) |wheel_name| {
-            allocator.free(wheel_name);
-        }
-        wheels_to_install.deinit();
-    }
+    errdefer wheels_to_install.deinit();
 
     for (self.pex_info.distributions.map.keys()) |wheel_name| {
         const wheel_info = try WheelInfo.parse(allocator, wheel_name);
@@ -80,20 +100,27 @@ fn selectWheelsToInstall(
                 );
                 defer allocator.free(wheel_layout);
 
+                var stash_dir: ?[]const u8 = null;
                 if (zip.entry(wheel_layout)) |entry| {
-                    const layout = try entry.extract_to_slice(allocator, zip_stream);
-                    _ = layout;
-                    // TODO: XXX: Parse the json layout for:
-                    // {
-                    //   "fingerprint": "a9e2c24b6a2fad1b6f19dd0af921302834025951844ee6392a7a2d5a87b62bf3",
-                    //   "record_relpath": "cowsay-5.0.dist-info/RECORD",
-                    //   "root_is_purelib": true,
-                    //   "stash_dir": ".prefix"
-                    // }
-                } else {
-                    // TODO: XXX: Assume "root_is_purelib": true and no stash to re-locate.
+                    const layout_data = try entry.extract_to_slice(allocator, zip_stream);
+                    const layout = try std.json.parseFromSlice(
+                        WheelLayout,
+                        allocator,
+                        layout_data,
+                        .{ .ignore_unknown_fields = true },
+                    );
+                    defer layout.deinit();
+                    if (layout.value.stash_dir) |stash_dir_relpath| {
+                        stash_dir = try allocator.dupe(u8, stash_dir_relpath);
+                    }
                 }
-                try wheels_to_install.append(wheel_prefix);
+                try wheels_to_install.append(
+                    WheelToInstall{
+                        .allocator = allocator,
+                        .prefix = wheel_prefix,
+                        .stash_dir = stash_dir,
+                    },
+                );
             }
         }
     }
@@ -170,8 +197,8 @@ pub fn install(
 
     var wg: std.Thread.WaitGroup = .{};
     for (zip_entries) |zip_entry| {
-        for (wheels_to_install.entries) |wheel_name| {
-            if (std.mem.startsWith(u8, zip_entry.name, wheel_name)) {
+        for (wheels_to_install.entries) |wheel_to_install| {
+            if (std.mem.startsWith(u8, zip_entry.name, wheel_to_install.prefix)) {
                 pool.spawnWg(&wg, Zip.extract, .{ zip_entry, self.pex_path, site_packages_path });
                 break;
             }
