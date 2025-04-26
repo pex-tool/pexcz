@@ -313,7 +313,7 @@ pub const Interpreter = struct {
         defer interpeter_cache_dir.close();
 
         const stat = try interpeter_cache_dir.statFile("info.json");
-        const data = try interpeter_cache_dir.readFileAlloc(allocator, "info.json", stat.size);
+        const data = try interpeter_cache_dir.readFileAlloc(allocator, "info.json", @intCast(stat.size));
         defer allocator.free(data);
 
         return try std.json.parseFromSlice(
