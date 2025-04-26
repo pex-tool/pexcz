@@ -2,14 +2,12 @@ const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
 const Interpreter = @import("interpreter.zig").Interpreter;
-const PEP_503 = @import("pep-503.zig");
 const PexInfo = @import("pex_info.zig").PexInfo;
-const Tag = PEP_503.Tag;
+const Tag = @import("Tag.zig");
 const VENV_PEX_PY = @embedFile("venv_pex.py");
 const Virtualenv = @import("Virtualenv.zig");
-const WheelInfo = PEP_503.WheelInfo;
+const WheelInfo = @import("WheelInfo.zig");
 const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
-const parse_wheel_name = PEP_503.parse_wheel_name;
 
 pub const main_py_relpath = "__main__.py";
 

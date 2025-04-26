@@ -7,10 +7,9 @@ const TempDirs = @import("fs.zig").TempDirs;
 const cache = @import("cache.zig");
 const getenv = @import("os.zig").getenv;
 const subprocess = @import("subprocess.zig");
-pub const Marker = @import("pep-508/Marker.zig");
-pub const PEP_503 = @import("pep-503.zig");
-pub const RankedTags = PEP_503.RankedTags;
-pub const Tag = PEP_503.Tag;
+pub const Marker = @import("Marker.zig");
+pub const RankedTags = @import("RankedTags.zig");
+pub const Tag = @import("Tag.zig");
 
 const Version = struct {
     major: u8,
