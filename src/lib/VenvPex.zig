@@ -22,35 +22,26 @@ pub fn init(pex_path: [*:0]const u8, pex_info: PexInfo) !Self {
 
 const log = std.log.scoped(.venv_pex);
 
-pub fn install(
+const WheelsToInstall = struct {
+    allocator: std.mem.Allocator,
+    entries: []const []const u8,
+
+    fn deinit(self: @This()) void {
+        for (self.entries) |entry| {
+            self.allocator.free(entry);
+        }
+    }
+};
+
+fn selectWheelsToInstall(
     self: Self,
     allocator: std.mem.Allocator,
-    dest_path: []const u8,
-    work_path: []const u8,
-    work_dir: std.fs.Dir,
     interpreter: Interpreter,
-    include_pip: bool,
-) !Virtualenv {
-    var timer = try std.time.Timer.start();
-    defer log.info(
-        "VenvPex.install({s}, ...) took {d:.3}ms",
-        .{ self.pex_path, timer.read() / 1_000_000 },
-    );
-
-    const venv = try Virtualenv.create(allocator, interpreter, work_dir, include_pip);
-    errdefer venv.deinit();
-
+    zip: ZipFile,
+    zip_stream: ZipFile.SeekableStream,
+) !WheelsToInstall {
     var ranked_tags = try interpreter.ranked_tags(allocator);
     defer ranked_tags.deinit();
-
-    var zip_file = try std.fs.cwd().openFile(self.pex_path, .{});
-    defer zip_file.close();
-
-    const zip_stream = zip_file.seekableStream();
-    var zip = try ZipFile.init(allocator, zip_stream);
-    defer zip.deinit(allocator);
-
-    const zip_entries = zip.entries();
 
     var wheels_to_install = try std.ArrayList([]const u8).initCapacity(
         allocator,
@@ -106,6 +97,38 @@ pub fn install(
             }
         }
     }
+    return .{ .allocator = allocator, .entries = try wheels_to_install.toOwnedSlice() };
+}
+
+pub fn install(
+    self: Self,
+    allocator: std.mem.Allocator,
+    dest_path: []const u8,
+    work_path: []const u8,
+    work_dir: std.fs.Dir,
+    interpreter: Interpreter,
+    include_pip: bool,
+) !Virtualenv {
+    var timer = try std.time.Timer.start();
+    defer log.info(
+        "VenvPex.install({s}, ...) took {d:.3}ms",
+        .{ self.pex_path, timer.read() / 1_000_000 },
+    );
+
+    var zip_file = try std.fs.cwd().openFile(self.pex_path, .{});
+    defer zip_file.close();
+
+    const zip_stream = zip_file.seekableStream();
+    var zip = try ZipFile.init(allocator, zip_stream);
+    defer zip.deinit(allocator);
+
+    const wheels_to_install = try self.selectWheelsToInstall(
+        allocator,
+        interpreter,
+        zip,
+        zip_stream,
+    );
+    defer wheels_to_install.deinit();
 
     const Zip = struct {
         fn extract(
@@ -122,6 +145,8 @@ pub fn install(
         }
     };
 
+    const zip_entries = zip.entries();
+
     var pool: std.Thread.Pool = undefined;
     try pool.init(
         .{
@@ -130,6 +155,9 @@ pub fn install(
         },
     );
     defer pool.deinit();
+
+    const venv = try Virtualenv.create(allocator, interpreter, work_dir, include_pip);
+    errdefer venv.deinit();
 
     var site_packages_dir = try work_dir.makeOpenPath(venv.site_packages_relpath, .{});
     defer site_packages_dir.close();
@@ -142,7 +170,7 @@ pub fn install(
 
     var wg: std.Thread.WaitGroup = .{};
     for (zip_entries) |zip_entry| {
-        for (wheels_to_install.items) |wheel_name| {
+        for (wheels_to_install.entries) |wheel_name| {
             if (std.mem.startsWith(u8, zip_entry.name, wheel_name)) {
                 pool.spawnWg(&wg, Zip.extract, .{ zip_entry, self.pex_path, site_packages_path });
                 break;

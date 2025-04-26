@@ -2,7 +2,8 @@ const std = @import("std");
 
 pub fn Zip(comptime SeekableZipStream: type) type {
     return struct {
-        const ZipIterator = std.zip.Iterator(SeekableZipStream);
+        pub const SeekableStream = SeekableZipStream;
+        const ZipIterator = std.zip.Iterator(SeekableStream);
         const ZipEntry = ZipIterator.Entry;
 
         pub const Entry = struct {
@@ -100,7 +101,7 @@ pub fn Zip(comptime SeekableZipStream: type) type {
             pub fn extract_to_slice(
                 self: @This(),
                 allocator: std.mem.Allocator,
-                stream: SeekableZipStream,
+                stream: SeekableStream,
             ) ![]const u8 {
                 const buffer = try allocator.alloc(
                     u8,
@@ -113,7 +114,7 @@ pub fn Zip(comptime SeekableZipStream: type) type {
                 return buffer;
             }
 
-            pub fn extract_to_writer(self: @This(), stream: SeekableZipStream, writer: anytype) !void {
+            pub fn extract_to_writer(self: @This(), stream: SeekableStream, writer: anytype) !void {
                 if (self.entry.uncompressed_size > std.math.maxInt(usize)) {
                     return error.EntryTooBig;
                 }
@@ -234,7 +235,7 @@ pub fn Zip(comptime SeekableZipStream: type) type {
 
         const Self = @This();
 
-        pub fn init(allocator: std.mem.Allocator, seekable_zip_stream: SeekableZipStream) !Self {
+        pub fn init(allocator: std.mem.Allocator, seekable_zip_stream: SeekableStream) !Self {
             var entries_by_name = std.StringArrayHashMapUnmanaged(Entry){};
             var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
             var zip_iter = try ZipIterator.init(seekable_zip_stream);
