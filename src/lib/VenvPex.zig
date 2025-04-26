@@ -2,7 +2,7 @@ const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
 const Interpreter = @import("interpreter.zig").Interpreter;
-const PexInfo = @import("pex_info.zig").PexInfo;
+const PexInfo = @import("PexInfo.zig");
 const Tag = @import("Tag.zig");
 const VENV_PEX_PY = @embedFile("venv_pex.py");
 const Virtualenv = @import("Virtualenv.zig");

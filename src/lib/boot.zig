@@ -8,7 +8,7 @@ const Virtualenv = @import("Virtualenv.zig");
 const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
 const cache = @import("cache.zig");
 const fs = @import("fs.zig");
-const parse_pex_info = @import("pex_info.zig").parse;
+const PexInfo = @import("PexInfo.zig");
 
 const log = std.log.scoped(.boot);
 
@@ -139,7 +139,7 @@ fn setupBoot(
     const data = try pex_info_entry.extract_to_slice(allocator, zip_stream);
     defer allocator.free(data);
 
-    const pex_info = try parse_pex_info(allocator, data);
+    const pex_info = try PexInfo.parse(allocator, data);
     defer pex_info.deinit();
 
     const encoder = std.fs.base64_encoder;
