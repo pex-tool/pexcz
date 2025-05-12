@@ -62,9 +62,15 @@ fn selectWheelsToInstall(
     self: Self,
     allocator: std.mem.Allocator,
     interpreter: Interpreter,
-    zip: ZipFile,
+    zip_entries_by_name: std.StringHashMap(ZipFile.Entry),
     zip_stream: ZipFile.SeekableStream,
 ) !WheelsToInstall {
+    var timer = try std.time.Timer.start();
+    defer log.info(
+        "VenvPex.selectWheelsToInstall({s}, ...) took {d:.3}ms",
+        .{ self.pex_path, timer.read() / 1_000_000 },
+    );
+
     var ranked_tags = try interpreter.ranked_tags(allocator);
     defer ranked_tags.deinit();
 
@@ -101,8 +107,7 @@ fn selectWheelsToInstall(
                 defer allocator.free(wheel_layout);
 
                 var stash_dir: ?[]const u8 = null;
-                if (try zip.entry(allocator, wheel_layout)) |entry| {
-                    defer entry.deinit();
+                if (zip_entries_by_name.get(wheel_layout)) |entry| {
                     const layout_data = try entry.extract_to_slice(allocator, zip_stream);
                     const layout = try std.json.parseFromSlice(
                         WheelLayout,
@@ -149,21 +154,35 @@ pub fn install(
     const zip_stream = zip_file.seekableStream();
     var zip = ZipFile.init(zip_stream);
 
+    var zip_entries = try zip.entry_iter();
+    var zip_entries_by_name = std.StringHashMap(ZipFile.Entry).init(allocator);
+    defer {
+        var vi = zip_entries_by_name.valueIterator();
+        while (vi.next()) |v| {
+            v.deinit();
+        }
+        zip_entries_by_name.deinit();
+    }
+
+    try zip_entries_by_name.ensureTotalCapacity(@intCast(zip_entries.count()));
+    while (try zip_entries.next(allocator)) |entry| {
+        try zip_entries_by_name.put(entry.name, entry);
+    }
+
     const wheels_to_install = try self.selectWheelsToInstall(
         allocator,
         interpreter,
-        zip,
+        zip_entries_by_name,
         zip_stream,
     );
     defer wheels_to_install.deinit();
 
     const Zip = struct {
         fn extract(
-            entry: ZipFile.Entry,
+            entry: *ZipFile.Entry,
             zip_path: []const u8,
             dest_dir_path: []const u8,
         ) void {
-            defer entry.deinit();
             entry.extract(zip_path, dest_dir_path) catch |err| {
                 std.debug.print(
                     "Failed to extract zip entry {s} from {s}: {}\n",
@@ -173,13 +192,11 @@ pub fn install(
         }
     };
 
-    var zip_entries = try zip.entry_iter();
-
     var pool: std.Thread.Pool = undefined;
     try pool.init(
         .{
             .allocator = allocator,
-            .n_jobs = @min(zip_entries.count(), std.Thread.getCpuCount() catch 1),
+            .n_jobs = @min(wheels_to_install.entries.len, std.Thread.getCpuCount() catch 1),
         },
     );
     defer pool.deinit();
@@ -197,13 +214,12 @@ pub fn install(
     defer allocator.free(site_packages_path);
 
     var wg: std.Thread.WaitGroup = .{};
-    while (try zip_entries.next(allocator)) |zip_entry| {
+    var zip_entries_iter = zip_entries_by_name.valueIterator();
+    while (zip_entries_iter.next()) |zip_entry| {
         for (wheels_to_install.entries) |wheel_to_install| {
             if (std.mem.startsWith(u8, zip_entry.name, wheel_to_install.prefix)) {
                 pool.spawnWg(&wg, Zip.extract, .{ zip_entry, self.pex_path, site_packages_path });
                 break;
-            } else {
-                zip_entry.deinit();
             }
         }
     }
