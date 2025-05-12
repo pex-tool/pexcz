@@ -101,7 +101,8 @@ fn selectWheelsToInstall(
                 defer allocator.free(wheel_layout);
 
                 var stash_dir: ?[]const u8 = null;
-                if (zip.entry(wheel_layout)) |entry| {
+                if (try zip.entry(allocator, wheel_layout)) |entry| {
+                    defer entry.deinit();
                     const layout_data = try entry.extract_to_slice(allocator, zip_stream);
                     const layout = try std.json.parseFromSlice(
                         WheelLayout,
@@ -146,8 +147,7 @@ pub fn install(
     defer zip_file.close();
 
     const zip_stream = zip_file.seekableStream();
-    var zip = try ZipFile.init(allocator, zip_stream);
-    defer zip.deinit(allocator);
+    var zip = ZipFile.init(zip_stream);
 
     const wheels_to_install = try self.selectWheelsToInstall(
         allocator,
@@ -163,6 +163,7 @@ pub fn install(
             zip_path: []const u8,
             dest_dir_path: []const u8,
         ) void {
+            defer entry.deinit();
             entry.extract(zip_path, dest_dir_path) catch |err| {
                 std.debug.print(
                     "Failed to extract zip entry {s} from {s}: {}\n",
@@ -172,13 +173,13 @@ pub fn install(
         }
     };
 
-    const zip_entries = zip.entries();
+    var zip_entries = try zip.entry_iter();
 
     var pool: std.Thread.Pool = undefined;
     try pool.init(
         .{
             .allocator = allocator,
-            .n_jobs = @min(zip_entries.len, std.Thread.getCpuCount() catch 1),
+            .n_jobs = @min(zip_entries.count(), std.Thread.getCpuCount() catch 1),
         },
     );
     defer pool.deinit();
@@ -196,11 +197,13 @@ pub fn install(
     defer allocator.free(site_packages_path);
 
     var wg: std.Thread.WaitGroup = .{};
-    for (zip_entries) |zip_entry| {
+    while (try zip_entries.next(allocator)) |zip_entry| {
         for (wheels_to_install.entries) |wheel_to_install| {
             if (std.mem.startsWith(u8, zip_entry.name, wheel_to_install.prefix)) {
                 pool.spawnWg(&wg, Zip.extract, .{ zip_entry, self.pex_path, site_packages_path });
                 break;
+            } else {
+                zip_entry.deinit();
             }
         }
     }

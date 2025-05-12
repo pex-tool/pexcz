@@ -40,16 +40,14 @@ fn inject(
     defer zip_file.close();
 
     const zip_stream = zip_file.seekableStream();
-    var zip = try pexcz.ZipFile.init(allocator, zip_stream);
-    defer zip.deinit(allocator);
-
-    const zip_entries = zip.entries();
+    var zip = pexcz.ZipFile.init(zip_stream);
+    var zip_entries = try zip.entry_iter();
 
     var pool: std.Thread.Pool = undefined;
     try pool.init(
         .{
             .allocator = allocator,
-            .n_jobs = @min(zip_entries.len, std.Thread.getCpuCount() catch 1),
+            .n_jobs = @min(zip_entries.count(), std.Thread.getCpuCount() catch 1),
         },
     );
     defer pool.deinit();
@@ -60,6 +58,7 @@ fn inject(
             zip_path: []const u8,
             dest_dir_path: []const u8,
         ) void {
+            defer entry.deinit();
             return entry.extract(zip_path, dest_dir_path) catch |err| {
                 std.debug.print(
                     "Failed to extract zip entry {s} from {s}: {}\n",
@@ -74,14 +73,16 @@ fn inject(
 
     const temp_path = try temp_dirs.mkdtemp(false);
     var wg = std.Thread.WaitGroup{};
-    next_entry: for (zip_entries) |zip_entry| {
+    next_entry: while (try zip_entries.next(allocator)) |zip_entry| {
         for ([_][]const u8{ "__main__.py", ".bootstrap/", "__pex__/" }) |name| {
             if (std.mem.eql(u8, name, zip_entry.name)) {
+                zip_entry.deinit();
                 continue :next_entry;
             }
         }
         for ([_][]const u8{ ".bootstrap/", "__pex__/" }) |name| {
             if (std.mem.startsWith(u8, zip_entry.name, name)) {
+                zip_entry.deinit();
                 continue :next_entry;
             }
         }

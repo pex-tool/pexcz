@@ -56,9 +56,11 @@ pub fn bootPexZPosix(
             break :res @ptrCast(envp.ptr);
         }
     };
+    if (timer.*) |*elapsed| log.info("Create envp took {d:.3}µs", .{elapsed.read() / 1_000});
 
     const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
     defer boot_spec.deinit();
+    if (timer.*) |*elapsed| log.info("Calculate boot spec took {d:.3}µs", .{elapsed.read() / 1_000});
 
     var exec_argv = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, 2 + argv.len);
     defer exec_argv.deinit();
@@ -119,28 +121,35 @@ fn setupBoot(
     //       * `inject_env`
     // [ ] 5. Re-exec to venv.
 
+    var timer = try std.time.Timer.start();
+
     const interpreter = try Interpreter.identify(allocator, std.mem.span(python_exe_path));
     defer interpreter.deinit();
+    log.info("Identify interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
 
     var temp_dirs = fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
 
+    timer.reset();
     var pex_file = try std.fs.cwd().openFileZ(pex_path, .{});
     defer pex_file.close();
     const zip_stream = pex_file.seekableStream();
-    var zip_file = try ZipFile.init(allocator, zip_stream);
-    defer zip_file.deinit(allocator);
+    var zip_file = ZipFile.init(zip_stream);
 
-    const pex_info_entry = zip_file.entry("PEX-INFO") orelse {
+    const pex_info_entry = try zip_file.entry(allocator, "PEX-INFO") orelse {
         std.debug.print("Failed to find PEX-INFO in {s}\n", .{pex_path});
         return error.PexInfoNotFound;
     };
+    defer pex_info_entry.deinit();
+    log.info("Find PEX-INFO entry took {d:.3}µs.", .{timer.lap() / 1_000});
 
     const data = try pex_info_entry.extract_to_slice(allocator, zip_stream);
     defer allocator.free(data);
+    log.info("Extract PEX-INFO took {d:.3}µs.", .{timer.lap() / 1_000});
 
     const pex_info = try PexInfo.parse(allocator, data);
     defer pex_info.deinit();
+    log.info("Parse PEX-INFO took {d:.3}µs.", .{timer.lap() / 1_000});
 
     const encoder = std.fs.base64_encoder;
     const pex_hash_bytes = @as(

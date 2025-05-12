@@ -17,21 +17,22 @@ def test_boot(tmpdir):
     # type: (Any) -> None
 
     pex = os.path.join(str(tmpdir), "cowsay.pex")
-    pex_root = os.path.join(str(tmpdir), "pex_root")
+    # pex_root = os.path.join(str(tmpdir), "pex_root")
     subprocess.check_call(
         args=[
             "pex",
             "cowsay<6",
             "requests",
-            "ansible",
+            "ansible",  # ~6x faster
             "-c",
             "cowsay",
             "-o",
             pex,
             "--venv",
             "prepend",
-            "--runtime-pex-root",
-            pex_root,
+            "--sh-boot",
+            # "--runtime-pex-root",
+            # pex_root,
         ]
     )  # ~12x faster
     # subprocess.check_call(

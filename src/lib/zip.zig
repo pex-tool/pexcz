@@ -7,8 +7,27 @@ pub fn Zip(comptime SeekableZipStream: type) type {
         const ZipEntry = ZipIterator.Entry;
 
         pub const Entry = struct {
+            allocator: std.mem.Allocator,
             name: []const u8,
             entry: ZipEntry,
+
+            fn from(
+                allocator: std.mem.Allocator,
+                zip_stream: SeekableStream,
+                zip_entry: ZipEntry,
+            ) !@This() {
+                const filename = res: {
+                    const filename = try allocator.alloc(u8, zip_entry.filename_len);
+                    const read = try zip_stream.context.readAll(filename);
+                    std.debug.assert(read == zip_entry.filename_len);
+                    break :res filename;
+                };
+                return .{ .allocator = allocator, .name = filename, .entry = zip_entry };
+            }
+
+            pub fn deinit(self: @This()) void {
+                self.allocator.free(self.name);
+            }
 
             pub fn extract(self: @This(), zip_path: []const u8, dest_dir_path: []const u8) !void {
                 var zip_file = try std.fs.cwd().openFile(zip_path, .{});
@@ -229,48 +248,47 @@ pub fn Zip(comptime SeekableZipStream: type) type {
             }
         };
 
-        const EntryMap = std.StringArrayHashMapUnmanaged(Entry);
-
-        entries_by_name: EntryMap,
+        zip_stream: SeekableStream,
 
         const Self = @This();
 
-        pub fn init(allocator: std.mem.Allocator, seekable_zip_stream: SeekableStream) !Self {
-            var entries_by_name = std.StringArrayHashMapUnmanaged(Entry){};
-            var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
-            var zip_iter = try ZipIterator.init(seekable_zip_stream);
+        pub fn init(seekable_zip_stream: SeekableStream) Self {
+            return .{ .zip_stream = seekable_zip_stream };
+        }
+
+        pub fn entry(self: Self, allocator: std.mem.Allocator, name: []const u8) !?Entry {
+            var zip_iter = try ZipIterator.init(self.zip_stream);
             while (try zip_iter.next()) |zip_entry| {
-                const filename = res: {
-                    const filename_slice = filename_buf[0..zip_entry.filename_len];
-                    const read = try seekable_zip_stream.context.readAll(filename_slice);
-                    std.debug.assert(read == zip_entry.filename_len);
-                    const filename = try allocator.alloc(u8, filename_slice.len);
-                    @memcpy(filename, filename_slice);
-                    break :res filename;
-                };
-                try entries_by_name.put(
-                    allocator,
-                    filename,
-                    Entry{ .name = filename, .entry = zip_entry },
-                );
+                if (zip_entry.filename_len != name.len) {
+                    continue;
+                }
+                const candidate_entry = try Entry.from(allocator, self.zip_stream, zip_entry);
+                if (std.mem.eql(u8, candidate_entry.name, name)) {
+                    return candidate_entry;
+                } else {
+                    candidate_entry.deinit();
+                }
             }
-            return .{ .entries_by_name = entries_by_name };
+            return null;
         }
 
-        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            for (self.entries_by_name.keys()) |key| {
-                // N.B.: The map values share the key; so this free covers both.
-                allocator.free(key);
+        pub const EntryIterator = struct {
+            zip_iter: ZipIterator,
+
+            pub fn next(self: *@This(), allocator: std.mem.Allocator) !?Entry {
+                if (try self.zip_iter.next()) |zip_entry| {
+                    return try Entry.from(allocator, self.zip_iter.stream, zip_entry);
+                }
+                return null;
             }
-            self.entries_by_name.deinit(allocator);
-        }
 
-        pub fn entry(self: Self, name: []const u8) ?Entry {
-            return self.entries_by_name.get(name);
-        }
+            pub fn count(self: @This()) u64 {
+                return self.zip_iter.cd_record_count;
+            }
+        };
 
-        pub fn entries(self: Self) []const Entry {
-            return self.entries_by_name.values();
+        pub fn entry_iter(self: Self) !EntryIterator {
+            return .{ .zip_iter = try ZipIterator.init(self.zip_stream) };
         }
     };
 }
