@@ -218,7 +218,10 @@ pub const Zip = struct {
         );
 
         if (num_threads < 2) {
-            return try self.extract(dest_dir_path, .{ .should_extract_fn = options.should_extract_fn });
+            return try self.extract(
+                dest_dir_path,
+                .{ .should_extract_fn = options.should_extract_fn },
+            );
         }
 
         var pool: std.Thread.Pool = undefined;
@@ -236,7 +239,7 @@ pub const Zip = struct {
             try zips.append(try Zip.init(self.path, .{ .mode = .read_only }));
         }
 
-        var extractor: ParallelExtractor = .{.zips = zips.items, .dest_dir = dest_dir_path};
+        var extractor: ParallelExtractor = .{ .zips = zips.items, .dest_dir = dest_dir_path };
 
         const should_extract = options.should_extract_fn orelse res: {
             break :res (struct {

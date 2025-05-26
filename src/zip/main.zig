@@ -127,6 +127,8 @@ pub fn main() !void {
     var allocator = Allocator.init();
     defer allocator.deinit();
 
+    const alloc = allocator.allocator();
+
     for (@as(
         []const []const u8,
         &.{
@@ -150,12 +152,13 @@ pub fn main() !void {
     var cowsay_zip = try Zip.init("cowsay.pex", .{});
     defer cowsay_zip.deinit();
 
-    const pex_info = try cowsay_zip.extract_to_slice(allocator.allocator(), "PEX-INFO");
+    const pex_info = try cowsay_zip.extract_to_slice(alloc, "PEX-INFO");
+    defer alloc.free(pex_info);
     std.debug.print("{s}\n", .{pex_info});
     std.debug.print("Read PEX-INFO took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
     try cowsay_zip.parallel_extract(
-        allocator.allocator(),
+        alloc,
         "/tmp/parallel/cowsay.pex",
         .{ .should_extract_fn = skip_extract_dirs },
     );
@@ -175,7 +178,7 @@ pub fn main() !void {
     std.debug.print("Extract zstd PEX took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
     try zstd_zip.parallel_extract(
-        allocator.allocator(),
+        alloc,
         "/tmp/parallel/future.pex",
         .{ .should_extract_fn = skip_extract_dirs },
     );
