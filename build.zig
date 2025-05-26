@@ -403,10 +403,8 @@ fn build_libzip(
     lib.installHeadersDirectory(zip_lib_dir, "", .{
         .include_extensions = &.{
             "zip.h",
-            "zipint.h",
         },
     });
     lib.installHeader(zip_config.getOutput(), "zipconf.h");
-    b.installArtifact(lib);
     return lib;
 }
