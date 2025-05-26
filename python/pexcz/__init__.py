@@ -2,14 +2,13 @@
 
 from __future__ import print_function
 
-import atexit
 import ctypes
 import functools
+import os
 import os.path
 import pkgutil
 import platform
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
@@ -28,12 +27,16 @@ if TYPE_CHECKING:
         Optional,
         Protocol,
         Sequence,
+        Tuple,
         Type,
     )
 else:
 
     class Protocol(object):  # type: ignore[no-redef]
         pass
+
+
+_PEX_VERBOSE = "PEX_VERBOSE" in os.environ
 
 
 if sys.version_info >= (3, 10):
@@ -150,18 +153,131 @@ X86_64 = Arch("x86_64")
 CURRENT_ARCH = Arch.current()
 
 
+class ELFFile(object):
+    class Invalid(ValueError):
+        pass
+
+    def __init__(self, path):
+        # type: (str) -> None
+
+        import struct
+
+        self._f = open(path, "rb")
+
+        try:
+            ident = self._read("16B")
+        except struct.error as e:
+            raise self.Invalid("unable to parse identification: {err}".format(err=e))
+        magic = bytes(ident[:4])
+        if magic != b"\x7fELF":
+            raise self.Invalid("invalid magic: {magic!r}".format(magic=magic))
+
+        self.capacity = ident[4]  # Format for program header (bitness).
+        self.encoding = ident[5]  # Data structure encoding (endianness).
+
+        try:
+            # e_fmt: Format for program header.
+            # p_fmt: Format for section header.
+            # p_idx: Indexes to find p_type, p_offset, and p_filesz.
+            e_fmt, self._p_fmt, self._p_idx = {
+                (1, 1): ("<HHIIIIIHHH", "<IIIIIIII", (0, 1, 4)),  # 32-bit LSB.
+                (1, 2): (">HHIIIIIHHH", ">IIIIIIII", (0, 1, 4)),  # 32-bit MSB.
+                (2, 1): ("<HHIQQQIHHH", "<IIQQQQQQ", (0, 2, 5)),  # 64-bit LSB.
+                (2, 2): (">HHIQQQIHHH", ">IIQQQQQQ", (0, 2, 5)),  # 64-bit MSB.
+            }[(self.capacity, self.encoding)]
+        except KeyError as e:
+            raise self.Invalid(
+                "unrecognized capacity ({capacity}) or encoding ({encoding}): {err}".format(
+                    capacity=self.capacity, encoding=self.encoding, err=e
+                )
+            )
+
+        try:
+            (
+                _,
+                _,
+                _,
+                _,
+                self._e_phoff,  # Offset of program header.
+                _,
+                _,
+                _,
+                self._e_phentsize,  # Size of section.
+                self._e_phnum,  # Number of sections.
+            ) = self._read(e_fmt)
+        except struct.error as e:
+            raise self.Invalid("unable to parse machine and section information") from e
+
+    def __enter__(self):
+        # type: () -> ELFFile
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # type: (...) -> None
+        if self._f:
+            self._f.close()
+
+    def _read(self, fmt):
+        # type: (str) -> Tuple[int, ...]
+
+        import struct
+
+        return struct.unpack(fmt, self._f.read(struct.calcsize(fmt)))
+
+    def interpreter(self):
+        # type: () -> Optional[bytes]
+        """The path recorded in the ``PT_INTERP`` section header."""
+
+        import struct
+
+        for idx in range(self._e_phnum):
+            self._f.seek(self._e_phoff + self._e_phentsize * idx)
+            try:
+                data = self._read(self._p_fmt)
+            except struct.error:
+                continue
+            if data[self._p_idx[0]] != 3:  # Not PT_INTERP.
+                continue
+            self._f.seek(data[self._p_idx[1]])
+            return self._f.read(data[self._p_idx[2]]).strip(b"\0")
+        return None
+
+
+def is_musl(executable):
+    # type: (str) -> bool
+    try:
+        with ELFFile(executable) as elffile:
+            interpreter = elffile.interpreter()
+            if interpreter:
+                if _PEX_VERBOSE:
+                    print(
+                        "pex: Parsed {exe} as using interpreter: {interp!r}.".format(
+                            exe=executable, interp=interpreter
+                        ),
+                        file=sys.stderr,
+                    )
+
+                # Via: https://www.musl-libc.org/doc/1.0.0/manual.html
+                # > The interpreter will be: $(syslibdir)/ld-musl-$(ARCH).so.1
+                # Crucially, we can rely on matching `musl` in the interpreter path.
+                return b"musl" in interpreter
+            return False
+    except ELFFile.Invalid as e:
+        print(
+            "pex: Failed to parse {exe} as an ELF file to determine abi; "
+            "assuming gnu: {err}".format(exe=executable, err=e),
+            file=sys.stderr,
+        )
+        return False
+
+
 class ABI(object):
     @classmethod
     def current(cls):
         # type: () -> Optional[ABI]
         if CURRENT_OS is not LINUX:
             return None
-        # TODO(John Sirois): Use parse sys.executable ELF directly.
-        process = subprocess.Popen(
-            args=["ldd", sys.executable], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-        )
-        stdout, _ = process.communicate()
-        return MUSL if process.returncode == 0 and b"musl" in stdout else GNU
+        return MUSL if is_musl(sys.executable) else GNU
 
     def __init__(self, name):
         # type: (str) -> None
@@ -235,9 +351,7 @@ if CURRENT_OS is WINDOWS:
     from ctypes import WinError, windll  # type: ignore[attr-defined]
     from ctypes.wintypes import HMODULE  # type: ignore[attr-defined]
     from os.path import dirname, exists
-    from shutil import rmtree
     from time import time as now
-    from warnings import warn
 
     def _unload_dll(
         path,  # type: str
@@ -250,7 +364,7 @@ if CURRENT_OS is WINDOWS:
             if not windll.kernel32.GetModuleHandleExW(  # type: ignore[attr-defined]
                 GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, dll.boot, ctypes.pointer(module_handle)
             ):
-                warn(
+                warnings.warn(
                     "Failed to clean up extracted dll resource at {path}: {err}".format(
                         path=path,
                         err=WinError(),  # type: ignore[attr-defined]
@@ -271,12 +385,12 @@ if CURRENT_OS is WINDOWS:
                     raise WinError()  # type: ignore[attr-defined]
                 else:
                     gc.collect()
-            rmtree(dirname(path), ignore_errors=True)
+            shutil.rmtree(dirname(path), ignore_errors=True)
             if not handle:
                 break
             elapsed = now() - start
             if elapsed > MAX_UNLOAD_WAIT_SECS:
-                warn(
+                warnings.warn(
                     "Failed to clean up extracted dll resource at {path} after {count} attempts "
                     "spanning {elapsed:.2}s".format(path=path, count=count, elapsed=elapsed)
                 )
@@ -333,6 +447,8 @@ def _load_pexcz():
         return pexcz
     finally:
         if CURRENT_OS is WINDOWS:
+            import atexit
+
             # N.B.: Once the library is loaded on Windows, it can't be deleted without jumping
             # through extra hoops:
             # PermissionError: [WinError 5] Access is denied: 'C:...\\Temp\\tmpbyxvw46f\\pexcz.dll'
