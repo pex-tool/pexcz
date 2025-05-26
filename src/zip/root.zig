@@ -39,13 +39,6 @@ pub const Zip = struct {
         };
     }
 
-    pub fn clone(self: Zip, allocator: std.mem.Allocator) !Zip {
-        var zip_clone = try allocator.create(Zip);
-        zip_clone.handle = try allocator.create(c.zip_t);
-        @memcpy(zip_clone.handle, self.handle);
-        return zip_clone.*;
-    }
-
     pub fn deinit(self: Zip) void {
         const zip_errno = c.zip_close(self.handle);
         if (zip_errno != 0 and logEnabled(.warn)) {
