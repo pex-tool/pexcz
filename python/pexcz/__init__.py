@@ -277,6 +277,8 @@ class ABI(object):
         # type: () -> Optional[ABI]
         if CURRENT_OS is not LINUX:
             return None
+        if CURRENT_ARCH is ARM32:
+            return None
         return MUSL if is_musl(sys.executable) else GNU
 
     def __init__(self, name):

@@ -5,7 +5,8 @@ const supported_targets: []const std.Target.Query = &.{
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .arm, .os_tag = .linux },
-    .{ .cpu_arch = .powerpc64le, .os_tag = .linux },
+    .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .gnu },
+    .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
     // Macos targets:
@@ -81,6 +82,7 @@ pub fn build(b: *std.Build) !void {
         // Python.
         clib.linkLibC();
         var clib_output = b.addInstallArtifact(clib, .{});
+        clib_output.dest_dir = .lib;
         clib_output.dest_sub_path = b.pathJoin(&.{ target_dir, clib_output.dest_sub_path });
         b.getInstallStep().dependOn(&clib_output.step);
 
