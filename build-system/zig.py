@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
     from typing import Any  # noqa: F401
 
-PEXCZ_PACKAGE_DIR = os.path.join("python", "pexcz")
+PEXCZ_LIB_DIR = os.path.abspath(os.path.join("python", "pexcz", ".lib"))
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -41,8 +41,7 @@ def find_zig():
 def clean_components():
     # type: () -> None
 
-    shutil.rmtree(os.path.join(PEXCZ_PACKAGE_DIR, "bin"), ignore_errors=True)
-    shutil.rmtree(os.path.join(PEXCZ_PACKAGE_DIR, "lib"), ignore_errors=True)
+    shutil.rmtree(PEXCZ_LIB_DIR, ignore_errors=True)
 
 
 def build_components():
@@ -59,8 +58,8 @@ def build_components():
     args.extend(
         (
             "--release={release_mode}".format(release_mode=release_mode),
-            "--prefix",
-            PEXCZ_PACKAGE_DIR,
+            "--prefix-lib-dir",
+            PEXCZ_LIB_DIR,
             "-Dtargets={targets}".format(targets=targets),
         )
     )

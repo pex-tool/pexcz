@@ -196,7 +196,7 @@ pub fn install(
     try pool.init(
         .{
             .allocator = allocator,
-            .n_jobs = @min(wheels_to_install.entries.len, std.Thread.getCpuCount() catch 1),
+            .n_jobs = @min(zip_entries.count(), std.Thread.getCpuCount() catch 1),
         },
     );
     defer pool.deinit();

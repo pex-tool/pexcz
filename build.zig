@@ -2,10 +2,12 @@ const std = @import("std");
 
 const supported_targets: []const std.Target.Query = &.{
     // Linux targets:
-    .{ .cpu_arch = .aarch64, .os_tag = .linux },
+    .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
+    .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .arm, .os_tag = .linux },
     .{ .cpu_arch = .powerpc64le, .os_tag = .linux },
-    .{ .cpu_arch = .x86_64, .os_tag = .linux },
+    .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
+    .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
     // Macos targets:
     .{ .cpu_arch = .aarch64, .os_tag = .macos },
     .{ .cpu_arch = .x86_64, .os_tag = .macos },
@@ -63,6 +65,8 @@ pub fn build(b: *std.Build) !void {
         });
         lib.addImport("vendor", vendor);
 
+        const target_dir = try tq.zigTriple(b.allocator);
+
         const clib = b.addSharedLibrary(.{
             .name = "pexcz",
             .root_module = b.addModule("pexcz", .{
@@ -76,16 +80,8 @@ pub fn build(b: *std.Build) !void {
         // Linux thread spawning code when initializing thread pools while loaded as a library from
         // Python.
         clib.linkLibC();
-        const clib_output = b.addInstallArtifact(clib, .{
-            .dest_dir = .{
-                .override = .{
-                    .custom = try std.fs.path.join(
-                        b.allocator,
-                        &[_][]const u8{ "lib", try tq.zigTriple(b.allocator) },
-                    ),
-                },
-            },
-        });
+        var clib_output = b.addInstallArtifact(clib, .{});
+        clib_output.dest_sub_path = b.pathJoin(&.{ target_dir, clib_output.dest_sub_path });
         b.getInstallStep().dependOn(&clib_output.step);
 
         const exe = b.addExecutable(.{
@@ -97,19 +93,11 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         exe.root_module.addImport("pexcz", lib);
-        const exe_output = b.addInstallArtifact(exe, .{
-            .dest_dir = .{
-                .override = .{
-                    .custom = try std.fs.path.join(b.allocator, &.{
-                        "bin",
-                        try tq.zigTriple(b.allocator),
-                    }),
-                },
-            },
-        });
+        var exe_output = b.addInstallArtifact(exe, .{});
+        exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, exe_output.dest_sub_path });
         b.getInstallStep().dependOn(&exe_output.step);
 
-        if (cur_tgt.result.os.tag == rt.result.os.tag and cur_tgt.result.cpu.arch == rt.result.cpu.arch) {
+        if (cur_tgt.result.os.tag == rt.result.os.tag and cur_tgt.result.cpu.arch == rt.result.cpu.arch and cur_tgt.result.abi == rt.result.abi) {
             const run_cmd = b.addRunArtifact(exe);
             run_cmd.step.dependOn(b.getInstallStep());
             if (b.args) |args| {
@@ -138,16 +126,8 @@ pub fn build(b: *std.Build) !void {
         zip_exe.root_module.addImport("zip", zip);
         zip_exe.linkLibrary(libzip_dep);
         zip_exe.linkLibC();
-        const zip_exe_output = b.addInstallArtifact(zip_exe, .{
-            .dest_dir = .{
-                .override = .{
-                    .custom = try std.fs.path.join(b.allocator, &.{
-                        "bin",
-                        try tq.zigTriple(b.allocator),
-                    }),
-                },
-            },
-        });
+        const zip_exe_output = b.addInstallArtifact(zip_exe, .{});
+        zip_exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, zip_exe_output.dest_sub_path });
         b.getInstallStep().dependOn(&zip_exe_output.step);
     }
 

@@ -4,12 +4,12 @@ from __future__ import print_function
 
 import atexit
 import ctypes
-import errno
 import functools
 import os.path
 import pkgutil
 import platform
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from typing import (  # noqa: F401
         Any,
         Callable,
+        List,
         Mapping,
         NoReturn,
         Optional,
@@ -33,6 +34,42 @@ else:
 
     class Protocol(object):  # type: ignore[no-redef]
         pass
+
+
+if sys.version_info >= (3, 10):
+
+    def orig_argv():
+        # type: () -> List[str]
+        return sys.orig_argv
+
+else:
+    try:
+        import ctypes
+
+        # N.B.: None of the PyPy versions we support <3.10 supports the pythonapi.
+        from ctypes import pythonapi
+
+        def orig_argv():
+            # type: () -> List[str]
+
+            # Under MyPy for Python 3.5, ctypes.POINTER is incorrectly typed. This code is tested
+            # to work correctly in practice on all Pythons Pex supports.
+            argv = ctypes.POINTER(  # type: ignore[call-arg]
+                ctypes.c_char_p if sys.version_info[0] == 2 else ctypes.c_wchar_p
+            )()
+
+            argc = ctypes.c_int()
+            pythonapi.Py_GetArgcArgv(ctypes.byref(argc), ctypes.byref(argv))
+
+            # Under MyPy for Python 3.5, argv[i] has its type incorrectly evaluated. This code
+            # is tested to work correctly in practice on all Pythons Pex supports.
+            return [argv[i] for i in range(argc.value)]  # type: ignore[misc]
+
+    except ImportError:
+        # N.B.: This handles the older PyPy case.
+        def orig_argv():
+            # type: () -> List[str]
+            return []
 
 
 class OperatingSystem(object):
@@ -111,6 +148,34 @@ PPC64LE = Arch("powerpc64le")
 X86_64 = Arch("x86_64")
 
 CURRENT_ARCH = Arch.current()
+
+
+class ABI(object):
+    @classmethod
+    def current(cls):
+        # type: () -> Optional[ABI]
+        if CURRENT_OS is not LINUX:
+            return None
+        # TODO(John Sirois): Use parse sys.executable ELF directly.
+        process = subprocess.Popen(
+            args=["ldd", sys.executable], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        )
+        stdout, _ = process.communicate()
+        return MUSL if process.returncode == 0 and b"musl" in stdout else GNU
+
+    def __init__(self, name):
+        # type: (str) -> None
+        self.name = name
+
+    def __str__(self):
+        # type: () -> str
+        return self.name
+
+
+GNU = ABI("gnu")
+MUSL = ABI("musl")
+
+CURRENT_ABI = ABI.current()
 
 
 class TimeUnit(object):
@@ -243,19 +308,17 @@ def _load_pexcz():
     library_file_path = os.path.join(tmp_dir, os.path.basename(library_file_name))
     try:
         platform_id = "{arch}-{os}".format(arch=CURRENT_ARCH, os=CURRENT_OS)
+        if CURRENT_ABI:
+            platform_id = "{platform_id}-{abi}".format(platform_id=platform_id, abi=CURRENT_ABI)
         try:
             # N.B.: This is the production resource.
             pexcz_data = pkgutil.get_data(
-                __name__, os.path.join("lib", platform_id, library_file_name)
+                __name__, os.path.join(".lib", platform_id, library_file_name)
             )
-        except (IOError, OSError) as e:
-            # TODO: XXX: Is this right for Windows? We only have FileNotFoundError for newer
-            #  Pythons.
-            if e.errno != errno.ENOENT:
-                raise
+        except (IOError, OSError):
             # And this is the development resource.
             pexcz_data = pkgutil.get_data(
-                __name__, os.path.join("lib", "native", library_file_name)
+                __name__, os.path.join(".lib", "native", library_file_name)
             )
         if pexcz_data is None:
             raise RuntimeError(
@@ -365,3 +428,56 @@ def boot(
             ctypes.cast(environ, ctypes.POINTER(type(environ))),
         )
     )
+
+
+# TODO: XXX: Actually handle __pex__/__init__.py import hook use case.
+SHOULD_EXECUTE = __name__ == "__main__"
+
+
+def entry_point_from_filename(filename):
+    # type: (str) -> str
+
+    # Either the entry point is "__main__" and we're in execute mode or "__pex__/__init__.py"
+    # and we're in import hook mode.
+    ep = os.path.dirname(filename)
+    if SHOULD_EXECUTE:
+        return ep
+    return os.path.dirname(ep)
+
+
+def find_entry_point():
+    # type: () -> Optional[str]
+    file = globals().get("__file__")
+    if file is not None and os.path.exists(file):
+        return entry_point_from_filename(file)
+
+    loader = globals().get("__loader__")
+    if loader is not None:
+        if hasattr(loader, "archive"):
+            return loader.archive
+
+        if hasattr(loader, "get_filename"):
+            # The source of the loader interface has changed over the course of Python history
+            # from `pkgutil.ImpLoader` to `importlib.abc.Loader`, but the existence and
+            # semantics of `get_filename` has remained constant; so we just check for the
+            # method.
+            return entry_point_from_filename(loader.get_filename())
+
+    return None
+
+
+if __name__ == "__main__":
+    entry_point = find_entry_point()
+    if entry_point is None:
+        sys.exit("Could not launch python executable!\n")
+
+    # TODO: XXX: Actually use python_args.
+    python_args = []  # type: List[str]
+    orig_args = orig_argv()
+    if orig_args:
+        for index, arg in enumerate(orig_args[1:], start=1):
+            if os.path.exists(arg) and os.path.samefile(entry_point, arg):
+                python_args.extend(orig_args[1:index])
+                break
+
+    boot(entry_point, args=sys.argv[2:])

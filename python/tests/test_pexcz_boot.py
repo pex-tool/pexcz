@@ -18,44 +18,46 @@ def test_boot(tmpdir):
 
     pex = os.path.join(str(tmpdir), "cowsay.pex")
     pex_root = os.path.join(str(tmpdir), "pex_root")
-    # subprocess.check_call(
-    #     args=[
-    #         "pex",
-    #         "cowsay<6",
-    #         "requests", # medium size:
-    #         "ansible",  # ~6x faster cold, ~7x faster cold but just interpreter cache warm.
-    #         "-c",
-    #         "cowsay",
-    #         "-o",
-    #         pex,
-    #         "--venv",
-    #         "prepend",
-    #         "--sh-boot",
-    #         "--runtime-pex-root",
-    #         pex_root,
-    #     ]
-    # )  # small size:
-    # ~12x faster cold, ~22x faster cold but just interpreter cache warm.
-
     subprocess.check_call(
         args=[
             "pex",
-            "torch",
+            "cowsay<6",
+            # "requests", # medium size:
+            # "ansible",  # ~6x faster cold, ~7x faster cold but just interpreter cache warm.
+            "-c",
+            "cowsay",
             "-o",
             pex,
             "--venv",
             "prepend",
             "--sh-boot",
-            "--venv-site-packages-copies",
+            "--pex-root",
+            pex_root,
             "--runtime-pex-root",
             pex_root,
         ]
-    )  # large size:
-    # ~3.5x faster
+    )  # small size:
+    # ~12x faster cold, ~17x faster cold but just interpreter cache warm.
+
+    # subprocess.check_call(
+    #     args=[
+    #         "pex",
+    #         "torch",
+    #         "-o",
+    #         pex,
+    #         "--venv",
+    #         "prepend",
+    #         "--sh-boot",
+    #         "--venv-site-packages-copies -",
+    #         "--runtime-pex-root",
+    #         pex_root,
+    #     ]
+    # )  # large size:
+    # # ~3.5x faster
 
     start = time.time()
-    # subprocess.check_call(args=[pex, "Moo!"])
-    subprocess.check_call(args=[pex, "-c", "import torch; print(torch.__file__)"])
+    subprocess.check_call(args=[pex, "Moo!"])
+    # subprocess.check_call(args=[pex, "-c", "import torch; print(torch.__file__)"])
     print(
         "Traditional PEX run took {elapsed:.5}ms".format(elapsed=(time.time() - start) * 1000),
         file=sys.stderr,
@@ -68,10 +70,10 @@ def test_boot(tmpdir):
         args=[
             sys.executable,
             "-c",
-            # "import sys, pexcz; pexcz.boot(r'{pex}', args=['Moo!'])".format(pex=pex),
-            "import sys, pexcz; pexcz.boot(r'{pex}', args=['-c', 'import torch; print(torch.__file__)'])".format(
-                pex=pex
-            ),
+            "import sys, pexcz; pexcz.boot(r'{pex}', args=['Moo!'])".format(pex=pex),
+            # "import sys, pexcz; pexcz.boot(r'{pex}', args=['-c', 'import torch; print(torch.__file__)'])".format(
+            #     pex=pex
+            # ),
         ],
         cwd=python_source_root,
     )
