@@ -209,7 +209,6 @@ fn build_libzip(
             .libzip_VERSION_PATCH = 4,
 
             .LIBZIP_TYPES_INCLUDE =
-            \\
             \\#if !defined(__STDC_FORMAT_MACROS)
             \\#define __STDC_FORMAT_MACROS 1
             \\#endif

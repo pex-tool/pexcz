@@ -189,11 +189,11 @@ fn extract_zip_parallel(allocator: std.mem.Allocator, path: [*c]const u8) !void 
                 self.zip_path,
                 &self.zips[id],
                 self.dest_dir,
-            ) catch {
-                // std.debug.print(
-                //     "Failed to extract zip entry {s} from {s}: {}\n",
-                //     .{ entry_name, self.zip_path, err },
-                // );
+            ) catch |err| {
+                std.debug.print(
+                    "Failed to extract zip entry {s} from {s}: {}\n",
+                    .{ entry_name, self.zip_path, err },
+                );
             };
         }
     };
@@ -247,19 +247,17 @@ fn write_zstd_zip(source_zip_path: [*c]const u8, compression_level: c.zip_uint32
             -1,
             null,
         ) orelse {
-            var zip_error = c.zip_get_error(dest_zip.handle).*;
             std.debug.print(
                 "Failed to open entry {d} ({s}) from {s}: {s}\n",
-                .{ index, entry_name, source_zip_path, c.zip_error_strerror(&zip_error) },
+                .{ index, entry_name, source_zip_path, c.zip_strerror(dest_zip.handle) },
             );
             return error.ZipEntryOpenError;
         };
         const dest_idx = c.zip_file_add(dest_zip.handle, entry_name, src, 0);
         if (dest_idx < 0) {
-            var zip_error = c.zip_get_error(dest_zip.handle).*;
             std.debug.print(
                 "Failed to add file entry {d} ({s}) to {s}: {s}\n",
-                .{ index, entry_name, dest_zip_path, c.zip_error_strerror(&zip_error) },
+                .{ index, entry_name, dest_zip_path, c.zip_strerror(dest_zip.handle) },
             );
             return error.ZipEntryAddFileError;
         }
@@ -273,10 +271,9 @@ fn write_zstd_zip(source_zip_path: [*c]const u8, compression_level: c.zip_uint32
             compression_level,
         );
         if (result < 0) {
-            var zip_error = c.zip_get_error(dest_zip.handle).*;
             std.debug.print(
                 "Failed to set compression to zstd for entry {d} ({s}) in {s}: {s}\n",
-                .{ index, entry_name, dest_zip_path, c.zip_error_strerror(&zip_error) },
+                .{ index, entry_name, dest_zip_path, c.zip_strerror(dest_zip.handle) },
             );
             return error.ZipEntrySetCompressionZstdError;
         }
