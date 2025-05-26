@@ -182,7 +182,6 @@ pub const Zip = struct {
     };
 
     const ParallelExtractor = struct {
-        alloc: std.mem.Allocator,
         zips: []Zip,
         dest_dir: []const u8,
 
@@ -192,9 +191,6 @@ pub const Zip = struct {
             entry_index: usize,
             entry_name: []const u8,
         ) void {
-            // TODO: XXX: See if we can eliminate this dup / free.
-            defer self.alloc.free(entry_name);
-
             var zip = self.zips[id];
             return zip.extract_index_to_dir(entry_index, entry_name, self.dest_dir) catch |err| {
                 // TODO: XXX: Need to actually fail on failure and not just log.
@@ -240,12 +236,7 @@ pub const Zip = struct {
             try zips.append(try Zip.init(self.path, .{ .mode = .read_only }));
         }
 
-        var thread_safe_alloc = std.heap.ThreadSafeAllocator{ .child_allocator = allocator };
-        var extractor: ParallelExtractor = .{
-            .alloc = thread_safe_alloc.allocator(),
-            .zips = zips.items,
-            .dest_dir = dest_dir_path,
-        };
+        var extractor: ParallelExtractor = .{.zips = zips.items, .dest_dir = dest_dir_path};
 
         const should_extract = options.should_extract_fn orelse res: {
             break :res (struct {
@@ -269,7 +260,7 @@ pub const Zip = struct {
                 pool.spawnWgId(
                     &wg,
                     ParallelExtractor.extract,
-                    .{ &extractor, zip_idx, try allocator.dupe(u8, entry_name) },
+                    .{ &extractor, zip_idx, entry_name },
                 );
             }
         }
