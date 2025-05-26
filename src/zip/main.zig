@@ -5,254 +5,35 @@ const c = @cImport({
 });
 const Zip = @import("zip").Zip;
 
-fn read_pex_info(pex: [*c]const u8) !void {
-    const zip = try Zip.init(pex, .{ .mode = .read_only });
-    defer zip.deinit();
-
-    const zfh = c.zip_fopen(zip.handle, "PEX-INFO", 0) orelse {
-        std.debug.print("PEX {s} is missing PEX-INFO.\n", .{pex});
-        return error.ZipFileOpenError;
-    };
-    defer _ = c.zip_fclose(zfh);
-
-    var out = std.io.getStdOut().writer();
-    var buffer: [4096]u8 = undefined;
-    while (true) {
-        const read_amt = c.zip_fread(zfh, &buffer, buffer.len);
-        if (read_amt < 0) {
-            std.debug.print("Failed to read PEX-INFO from {s}.\n", .{pex});
-            return error.ZipFileReadError;
-        }
-        if (read_amt == 0) {
-            break;
-        }
-        try out.writeAll(buffer[0..@intCast(read_amt)]);
-    }
-    try out.writeByte('\n');
-}
-
-fn extract_zip(allocator: std.mem.Allocator, path: [*c]const u8) !void {
-    const zip = try Zip.init(path, .{ .mode = .read_only });
-    defer zip.deinit();
-
-    const entry_count = c.zip_get_num_entries(zip.handle, 0);
-    if (entry_count < 0) {
-        std.debug.print("Zip {s} has no entries!\n", .{path});
-        return error.ZipEmptyError;
-    }
-
-    const dest_dir_path = try std.fs.path.join(allocator, &.{ "/tmp", std.mem.span(path) });
-    defer allocator.free(dest_dir_path);
-    var dest_dir = try std.fs.cwd().makeOpenPath(dest_dir_path, .{});
-    defer dest_dir.close();
-
-    for (0..@intCast(entry_count)) |index| {
-        const entry_name = std.mem.span(c.zip_get_name(zip.handle, @intCast(index), 0) orelse {
-            std.debug.print("Failed to get name of entry {d} from {s}.\n", .{ index, path });
-            return error.ZipEntryMetadataError;
-        });
-        if ('/' == entry_name[entry_name.len - 1]) {
-            try dest_dir.makePath(entry_name[0 .. entry_name.len - 1]);
-            continue;
-        } else if (std.fs.path.dirname(entry_name)) |dir_name| {
-            try dest_dir.makePath(dir_name);
-        }
-
-        const zfh = c.zip_fopen_index(zip.handle, @intCast(index), 0) orelse {
-            std.debug.print("Failed to open zip entry {d} ({s}) from {s}.\n", .{ index, entry_name, path });
-            return error.ZipFileOpenError;
-        };
-        defer _ = c.zip_fclose(zfh);
-
-        var file = try dest_dir.createFile(entry_name, .{});
-        defer file.close();
-
-        var buf_out = std.io.bufferedWriter(file.writer());
-        var out = buf_out.writer();
-        var read_buffer: [8 * 4096]u8 = undefined; // An ~87% compressed block will fit.
-        while (true) {
-            const read_amt = c.zip_fread(zfh, &read_buffer, read_buffer.len);
-            if (read_amt < 0) {
-                std.debug.print(
-                    "Failed to read zip entry {d} ({s}) from {s}.\n",
-                    .{ index, entry_name, path },
-                );
-                return error.ZipFileReadError;
-            }
-            if (read_amt == 0) {
-                break;
-            }
-            try out.writeAll(read_buffer[0..@intCast(read_amt)]);
-        }
-    }
-}
-
-fn extract_entry(
-    index: usize,
-    entry_name: []const u8,
-    zip_path: [*c]const u8,
-    zip: *const Zip,
-    dest_dir_path: []const u8,
-) !void {
-    var dest_dir = try std.fs.cwd().makeOpenPath(dest_dir_path, .{});
-    defer dest_dir.close();
-
-    if (std.fs.path.dirname(entry_name)) |dir_name| {
-        try dest_dir.makePath(dir_name);
-    }
-
-    const zfh = c.zip_fopen_index(zip.handle, @intCast(index), 0) orelse {
-        std.debug.print(
-            "Failed to open zip entry {d} ({s}) from {s}: {s}\n",
-            .{ index, entry_name, zip_path, c.zip_strerror(zip.handle) },
-        );
-        return error.ZipFileOpenError;
-    };
-    defer _ = c.zip_fclose(zfh);
-
-    var file = try dest_dir.createFile(entry_name, .{});
-    defer file.close();
-
-    var buf_out = std.io.bufferedWriter(file.writer());
-    var out = buf_out.writer();
-    var read_buffer: [8 * 4096]u8 = undefined; // An ~87% compressed block will fit.
-    while (true) {
-        const read_amt = c.zip_fread(zfh, &read_buffer, read_buffer.len);
-        if (read_amt < 0) {
-            std.debug.print(
-                "Failed to read zip entry {d} ({s}) from {s}: {s}\n",
-                .{ index, entry_name, zip_path, c.zip_file_strerror(zfh) },
-            );
-            return error.ZipFileReadError;
-        }
-        if (read_amt == 0) {
-            break;
-        }
-        try out.writeAll(read_buffer[0..@intCast(read_amt)]);
-    }
-}
-
-fn extract_zip_parallel(allocator: std.mem.Allocator, path: [*c]const u8) !void {
-    const zip = try Zip.init(path, .{ .mode = .read_only });
-    defer zip.deinit();
-
-    const entry_count = c.zip_get_num_entries(zip.handle, 0);
-    if (entry_count < 0) {
-        std.debug.print("Zip {s} has no entries!\n", .{path});
-        return error.ZipEmptyError;
-    }
-
-    const dest_dir_path = try std.fs.path.join(
-        allocator,
-        &.{ "/tmp", "parallel", std.mem.span(path) },
-    );
-    defer allocator.free(dest_dir_path);
-
-    var pool: std.Thread.Pool = undefined;
-    const num_entries: usize = @intCast(entry_count);
-    try pool.init(
-        .{
-            .allocator = allocator,
-            .n_jobs = @min(num_entries, std.Thread.getCpuCount() catch 1),
-            .track_ids = true,
-        },
-    );
-    defer pool.deinit();
-
-    var zips = try std.ArrayList(Zip).initCapacity(allocator, pool.getIdCount());
-    defer {
-        for (zips.items) |z| {
-            z.deinit();
-        }
-        zips.deinit();
-    }
-    for (0..pool.getIdCount()) |_| {
-        try zips.append(try Zip.init(path, .{ .mode = .read_only }));
-    }
-
-    const ParallelZip = struct {
-        alloc: std.mem.Allocator,
-        zips: []Zip,
-        zip_path: [*c]const u8,
-        dest_dir: []const u8,
-
-        fn extract(
-            id: usize,
-            self: *@This(),
-            index: usize,
-            entry_name: []const u8,
-        ) void {
-            defer self.alloc.free(entry_name);
-            return extract_entry(
-                index,
-                entry_name,
-                self.zip_path,
-                &self.zips[id],
-                self.dest_dir,
-            ) catch |err| {
-                std.debug.print(
-                    "Failed to extract zip entry {s} from {s}: {}\n",
-                    .{ entry_name, self.zip_path, err },
-                );
-            };
-        }
-    };
-
-    var thread_safe_alloc = std.heap.ThreadSafeAllocator{ .child_allocator = allocator };
-    var pz: ParallelZip = .{
-        .alloc = thread_safe_alloc.allocator(),
-        .zips = zips.items,
-        .zip_path = path,
-        .dest_dir = dest_dir_path,
-    };
-
-    var wg = std.Thread.WaitGroup{};
-    for (0..@intCast(entry_count)) |index| {
-        const entry_name = std.mem.span(c.zip_get_name(zip.handle, @intCast(index), 0) orelse {
-            std.debug.print("Failed to get name of entry {d} from {s}.\n", .{ index, path });
-            return error.ZipEntryMetadataError;
-        });
-        if ('/' == entry_name[entry_name.len - 1]) {
-            continue;
-        }
-        pool.spawnWgId(&wg, ParallelZip.extract, .{ &pz, index, try allocator.dupe(u8, entry_name) });
-    }
-    pool.waitAndWork(&wg);
-}
-
-fn write_zstd_zip(source_zip_path: [*c]const u8, compression_level: c.zip_uint32_t) ![*c]const u8 {
-    const source_zip = try Zip.init(source_zip_path, .{ .mode = .read_only });
-    defer source_zip.deinit();
-
+fn write_zstd_zip(source_zip: *Zip, compression_level: c.zip_uint32_t) !Zip {
     const dest_zip_path: [*c]const u8 = "future.pex";
     const dest_zip = try Zip.init(dest_zip_path, .{ .mode = .truncate });
-    defer dest_zip.deinit();
+    errdefer dest_zip.deinit();
 
-    const entry_count = c.zip_get_num_entries(source_zip.handle, 0);
-    if (entry_count < 0) {
-        std.debug.print("Zip {s} has no entries!\n", .{source_zip_path});
-        return error.ZipEmptyError;
-    }
-    for (0..@intCast(entry_count)) |index| {
+    for (0..source_zip.num_entries) |index| {
         const entry_name = std.mem.span(c.zip_get_name(source_zip.handle, @intCast(index), 0) orelse {
-            std.debug.print("Failed to get name of entry {d} from {s}.\n", .{ index, source_zip_path });
+            std.debug.print(
+                "Failed to get name of entry {d} from {s}.\n",
+                .{ index, source_zip.path },
+            );
             return error.ZipEntryMetadataError;
         });
         const src = c.zip_source_zip_file(
             dest_zip.handle,
             source_zip.handle,
             @intCast(index),
-            0,
+            c.ZIP_FL_UNCHANGED,
             0,
             -1,
             null,
         ) orelse {
             std.debug.print(
                 "Failed to open entry {d} ({s}) from {s}: {s}\n",
-                .{ index, entry_name, source_zip_path, c.zip_strerror(dest_zip.handle) },
+                .{ index, entry_name, source_zip.path, c.zip_strerror(dest_zip.handle) },
             );
             return error.ZipEntryOpenError;
         };
+        errdefer c.zip_source_free(src);
         const dest_idx = c.zip_file_add(dest_zip.handle, entry_name, src, 0);
         if (dest_idx < 0) {
             std.debug.print(
@@ -261,7 +42,11 @@ fn write_zstd_zip(source_zip_path: [*c]const u8, compression_level: c.zip_uint32
             );
             return error.ZipEntryAddFileError;
         }
-        if (std.mem.eql(u8, "__main__.py", entry_name) or std.mem.eql(u8, "PEX-INFO", entry_name)) {
+        if (std.mem.eql(u8, "__main__.py", entry_name) or std.mem.eql(
+            u8,
+            "PEX-INFO",
+            entry_name,
+        ) or std.mem.endsWith(u8, entry_name, "/")) {
             continue;
         }
         const result = c.zip_set_file_compression(
@@ -278,7 +63,8 @@ fn write_zstd_zip(source_zip_path: [*c]const u8, compression_level: c.zip_uint32
             return error.ZipEntrySetCompressionZstdError;
         }
     }
-    return dest_zip_path;
+    dest_zip.deinit();
+    return try Zip.init(dest_zip_path, .{});
 }
 
 const Debug = struct {
@@ -341,28 +127,59 @@ pub fn main() !void {
     var allocator = Allocator.init();
     defer allocator.deinit();
 
-    try std.fs.cwd().deleteTree("/tmp/cowsay.pex");
-    try std.fs.cwd().deleteTree("/tmp/parallel/cowsay.pex");
-    try std.fs.cwd().deleteTree("/tmp/future.pex");
-    try std.fs.cwd().deleteTree("/tmp/parallel/future.pex");
+    for (@as(
+        []const []const u8,
+        &.{
+            "/tmp/cowsay.pex",
+            "/tmp/parallel/cowsay.pex",
+            "/tmp/future.pex",
+            "/tmp/parallel/future.pex",
+        },
+    )) |path| {
+        std.fs.cwd().deleteTree(path) catch {};
+    }
+
+    const skip_extract_dirs = (struct {
+        fn should_extract(name: []const u8) bool {
+            return name.len == 0 or '/' != name[name.len - 1];
+        }
+    }).should_extract;
 
     var timer = try std.time.Timer.start();
-    try read_pex_info("cowsay.pex");
+
+    var cowsay_zip = try Zip.init("cowsay.pex", .{});
+    defer cowsay_zip.deinit();
+
+    const pex_info = try cowsay_zip.extract_to_slice(allocator.allocator(), "PEX-INFO");
+    std.debug.print("{s}\n", .{pex_info});
     std.debug.print("Read PEX-INFO took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
-    try extract_zip_parallel(allocator.allocator(), "cowsay.pex");
+    try cowsay_zip.parallel_extract(
+        allocator.allocator(),
+        "/tmp/parallel/cowsay.pex",
+        .{ .should_extract_fn = skip_extract_dirs },
+    );
     std.debug.print("Extract PEX parallel took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
-    try extract_zip(allocator.allocator(), "cowsay.pex");
+
+    try cowsay_zip.extract("/tmp/cowsay.pex", .{ .should_extract_fn = skip_extract_dirs });
     std.debug.print("Extract PEX took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
-    const zstd_zip = try write_zstd_zip("cowsay.pex", 3);
+    var zstd_zip = try write_zstd_zip(&cowsay_zip, 3);
+    defer zstd_zip.deinit();
     std.debug.print(
         "Create zstd PEX from normal PEX took {d:.3}ms.\n",
         .{timer.lap() / 1_000_000},
     );
 
-    try extract_zip(allocator.allocator(), zstd_zip);
+    try zstd_zip.extract("/tmp/future.pex", .{ .should_extract_fn = skip_extract_dirs });
     std.debug.print("Extract zstd PEX took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
-    try extract_zip_parallel(allocator.allocator(), zstd_zip);
+
+    try zstd_zip.parallel_extract(
+        allocator.allocator(),
+        "/tmp/parallel/future.pex",
+        .{ .should_extract_fn = skip_extract_dirs },
+    );
     std.debug.print("Extract zstd PEX parallel took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
+
+    std.debug.print("Used {d} bytes.\n", .{allocator.bytes_used()});
 }
