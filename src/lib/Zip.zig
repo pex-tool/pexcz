@@ -10,7 +10,11 @@ inline fn logEnabled(level: std.log.Level) bool {
     return std.log.logEnabled(level, .zip);
 }
 
-pub const Compression = enum(c_int) { deflate = c.ZIP_CM_DEFAULT, store = c.ZIP_CM_STORE, zstd = c.ZIP_CM_ZSTD };
+pub const Compression = enum(c_int) {
+    deflate = c.ZIP_CM_DEFAULT,
+    store = c.ZIP_CM_STORE,
+    zstd = c.ZIP_CM_ZSTD,
+};
 
 pub const OpenOptions = struct {
     pub const Mode = enum(c_int) {
