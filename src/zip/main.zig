@@ -1,11 +1,9 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const c = @cImport({
-    @cInclude("zip.h");
-});
+
 const pexcz = @import("pexcz");
 const Allocator = pexcz.Allocator;
 const Zip = pexcz.Zip;
+const c = Zip.c;
 
 fn writeZstdZip(source_zip: *Zip, compression_level: c.zip_uint32_t) !Zip {
     const dest_zip_path: [*c]const u8 = "future.pex";

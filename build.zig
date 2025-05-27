@@ -120,7 +120,6 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         zip_exe.root_module.addImport("pexcz", lib);
-        zip_exe.linkLibrary(libzip_dep);
         zip_exe.linkLibC();
         const zip_exe_output = b.addInstallArtifact(zip_exe, .{});
         zip_exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, zip_exe_output.dest_sub_path });
