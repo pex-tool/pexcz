@@ -78,7 +78,7 @@ pub fn bootPexZPosix(
     }
     try exec_argv.append(null);
 
-    log.info("Bytes used: {d}", .{alloc.bytes_used()});
+    log.info("Bytes used: {d}", .{alloc.bytesUsed()});
     if (timer.*) |*elpased| log.info(
         "C boot({s}, {s}, ...) pre-exec took {d:.3}µs",
         .{ python_exe_path, pex_path, elpased.read() / 1_000 },
@@ -140,7 +140,7 @@ fn setupBoot(
     var zip_file = try Zip.init(pex_path, .{});
     defer zip_file.deinit();
 
-    const data = zip_file.extract_to_slice(allocator, "PEX-INFO") catch |err| {
+    const data = zip_file.extractToSlice(allocator, "PEX-INFO") catch |err| {
         std.debug.print("Failed to read PEX-INFO from {s}: {}\n", .{ pex_path, err });
         return error.PexInfoUnreadable;
     } orelse {

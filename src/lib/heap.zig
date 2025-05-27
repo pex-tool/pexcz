@@ -23,7 +23,7 @@ const Debug = struct {
         return self.debug_allocator.allocator();
     }
 
-    pub fn bytes_used(self: Self) usize {
+    pub fn bytesUsed(self: Self) usize {
         return self.debug_allocator.total_requested_bytes;
     }
 };
@@ -47,7 +47,7 @@ const Arena = struct {
         return self.arena.allocator();
     }
 
-    pub fn bytes_used(self: Self) usize {
+    pub fn bytesUsed(self: Self) usize {
         return self.arena.queryCapacity();
     }
 };

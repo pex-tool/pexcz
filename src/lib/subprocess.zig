@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Child = @import("vendor").zig.std.process.Child;
+const Child = std.process.Child;
 pub const RunResult = Child.RunResult;
 
 const ChildRunArgs = @typeInfo(@TypeOf(Child.run)).@"fn".params[0].type.?;
@@ -189,7 +189,7 @@ pub fn run(
     }
 }
 
-pub fn check_call(result: RunResult) !void {
+pub fn checkCall(result: RunResult) !void {
     switch (result.term) {
         .Exited => |code| {
             if (code != 0) return error.InterpreterIdentificationError;
@@ -203,7 +203,7 @@ pub fn CheckCall(printErrorFn: anytype) type {
     if (ErrorFnParamType == void) {
         return struct {
             pub fn parse(result: RunResult) !void {
-                return check_call(result);
+                return checkCall(result);
             }
             pub fn printError() void {
                 printErrorFn();
@@ -212,7 +212,7 @@ pub fn CheckCall(printErrorFn: anytype) type {
     } else {
         return struct {
             pub fn parse(result: RunResult) !void {
-                return check_call(result);
+                return checkCall(result);
             }
             pub fn printError(args: ErrorFnParamType) void {
                 printErrorFn(args);
@@ -228,7 +228,7 @@ pub fn CheckOutput(printErrorFn: anytype) type {
             pub const owns_stdout = true;
             pub const owns_stderr = false;
             pub fn parse(result: RunResult) ![]const u8 {
-                try check_call(result);
+                try checkCall(result);
                 return result.stdout;
             }
             pub fn printError() void {
@@ -240,7 +240,7 @@ pub fn CheckOutput(printErrorFn: anytype) type {
             pub const owns_stdout = true;
             pub const owns_stderr = false;
             pub fn parse(result: RunResult) ![]const u8 {
-                try check_call(result);
+                try checkCall(result);
                 return result.stdout;
             }
             pub fn printError(args: ErrorFnParamType) void {

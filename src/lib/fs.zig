@@ -21,7 +21,7 @@ const TempDirRoot = struct {
     }
 };
 
-fn temp_dir_root(allocator: std.mem.Allocator) !TempDirRoot {
+fn tempDirRoot(allocator: std.mem.Allocator) !TempDirRoot {
     // Via Python: https://docs.python.org/3/library/tempfile.html#tempfile.gettempdir
     // Return the name of the directory used for temporary files. This defines the default value
     // for the dir argument to all functions in this module.
@@ -81,7 +81,7 @@ pub const TempDirs = struct {
     }
 
     pub fn mkdtemp(self: *Self, cleanup: bool) ![]const u8 {
-        var td = try temp_dir_root(self.allocator);
+        var td = try tempDirRoot(self.allocator);
         defer td.deinit();
 
         const encoder = std.fs.base64_encoder;

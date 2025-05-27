@@ -62,7 +62,7 @@ pub fn deinit(self: Self) void {
     }
 }
 
-pub fn extract_to_slice(
+pub fn extractToSlice(
     self: *Self,
     allocator: std.mem.Allocator,
     name: [*c]const u8,
@@ -78,24 +78,24 @@ pub fn extract_to_slice(
         }
         const buffer = try allocator.alloc(u8, @intCast(stat.size));
         var out = std.io.fixedBufferStream(buffer);
-        try self.extract_index_to_writer(@intCast(index), std.mem.span(name), out.writer());
+        try self.extractIndexToWriter(@intCast(index), std.mem.span(name), out.writer());
         return buffer;
     } else {
         var buffer = std.ArrayList(u8).init(allocator);
-        try self.extract_index_to_writer(@intCast(index), std.mem.span(name), buffer.writer());
+        try self.extractIndexToWriter(@intCast(index), std.mem.span(name), buffer.writer());
         return try buffer.toOwnedSlice();
     }
 }
 
-pub fn extract_to_dir(self: *Self, name: [*c]const u8, dest_dir_path: []const u8) !void {
+pub fn extractToDir(self: *Self, name: [*c]const u8, dest_dir_path: []const u8) !void {
     const index = c.zip_name_locate(self.handle, name, 0);
     if (index < 0) {
         return error.ZipEntryNotFound;
     }
-    return self.extract_index_to_dir(@intCast(index), std.mem.span(name), dest_dir_path);
+    return self.extractIndexToDir(@intCast(index), std.mem.span(name), dest_dir_path);
 }
 
-fn extract_index_to_dir(
+fn extractIndexToDir(
     self: *Self,
     index: c.zip_uint64_t,
     name: []const u8,
@@ -116,11 +116,11 @@ fn extract_index_to_dir(
     defer file.close();
 
     var buf_out = std.io.bufferedWriter(file.writer());
-    try self.extract_index_to_writer(index, name, buf_out.writer());
+    try self.extractIndexToWriter(index, name, buf_out.writer());
     return buf_out.flush();
 }
 
-fn extract_index_to_writer(
+fn extractIndexToWriter(
     self: *Self,
     index: c.zip_uint64_t,
     name: []const u8,
@@ -156,7 +156,7 @@ pub fn extract(
     self: *Self,
     dest_dir_path: []const u8,
     context: anytype,
-    comptime should_extract_fn: fn (context: @TypeOf(context), entry_name: []const u8) bool,
+    comptime shouldExtractFn: fn (context: @TypeOf(context), entry_name: []const u8) bool,
 ) !void {
     if (self.num_entries < 1) {
         return;
@@ -170,7 +170,7 @@ pub fn extract(
             log.err("Failed to get name of entry {d} from {s}.", .{ zip_idx, self.path });
             return error.ZipEntryMetadataError;
         });
-        if (should_extract_fn(context, entry_name)) {
+        if (shouldExtractFn(context, entry_name)) {
             if (std.mem.endsWith(u8, entry_name, "/")) {
                 try dest_dir.makePath(entry_name[0 .. entry_name.len - 1]);
                 continue;
@@ -184,7 +184,7 @@ pub fn extract(
             defer file.close();
 
             var buf_out = std.io.bufferedWriter(file.writer());
-            try self.extract_index_to_writer(zip_idx, entry_name, buf_out.writer());
+            try self.extractIndexToWriter(zip_idx, entry_name, buf_out.writer());
             try buf_out.flush();
         }
     }
@@ -205,7 +205,7 @@ const ParallelExtractor = struct {
         entry_name: []const u8,
     ) void {
         var zip = self.zips[id];
-        return zip.extract_index_to_dir(entry_index, entry_name, self.dest_dir) catch |err| {
+        return zip.extractIndexToDir(entry_index, entry_name, self.dest_dir) catch |err| {
             // TODO: XXX: Need to actually fail on failure and not just log.
             log.err(
                 "Failed to extract zip entry {s} from {s}: {}",
@@ -215,12 +215,12 @@ const ParallelExtractor = struct {
     }
 };
 
-pub fn parallel_extract(
+pub fn parallelExtract(
     self: *Self,
     allocator: std.mem.Allocator,
     dest_dir_path: []const u8,
     context: anytype,
-    comptime should_extract_fn: fn (context: @TypeOf(context), entry_name: []const u8) bool,
+    comptime shouldExtractFn: fn (context: @TypeOf(context), entry_name: []const u8) bool,
     options: ParallelExtractOptions,
 ) !void {
     if (self.num_entries < 1) {
@@ -236,7 +236,7 @@ pub fn parallel_extract(
         return try self.extract(
             dest_dir_path,
             context,
-            should_extract_fn,
+            shouldExtractFn,
         );
     }
 
@@ -267,7 +267,7 @@ pub fn parallel_extract(
             log.err("Failed to get name of entry {d} from {s}.", .{ zip_idx, self.path });
             return error.ZipEntryMetadataError;
         });
-        if (should_extract_fn(context, entry_name)) {
+        if (shouldExtractFn(context, entry_name)) {
             pool.spawnWgId(
                 &wg,
                 ParallelExtractor.extract,

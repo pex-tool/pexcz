@@ -7,7 +7,7 @@ const pexcz = @import("pexcz");
 const Allocator = pexcz.Allocator;
 const Zip = pexcz.Zip;
 
-fn write_zstd_zip(source_zip: *Zip, compression_level: c.zip_uint32_t) !Zip {
+fn writeZstdZip(source_zip: *Zip, compression_level: c.zip_uint32_t) !Zip {
     const dest_zip_path: [*c]const u8 = "future.pex";
     const dest_zip = try Zip.init(dest_zip_path, .{ .mode = .truncate });
     errdefer dest_zip.deinit();
@@ -92,7 +92,7 @@ pub fn main() !void {
     }
 
     const SkipExtractDirs = struct {
-        pub fn should_extract(_: void, name: []const u8) bool {
+        pub fn shouldExtract(_: void, name: []const u8) bool {
             return name.len == 0 or '/' != name[name.len - 1];
         }
     };
@@ -102,7 +102,7 @@ pub fn main() !void {
     var cowsay_zip = try Zip.init("cowsay.pex", .{});
     defer cowsay_zip.deinit();
 
-    if (try cowsay_zip.extract_to_slice(alloc, "PEX-INFO")) |pex_info| {
+    if (try cowsay_zip.extractToSlice(alloc, "PEX-INFO")) |pex_info| {
         defer alloc.free(pex_info);
         std.debug.print("{s}\n", .{pex_info});
         std.debug.print("Read PEX-INFO took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
@@ -110,36 +110,36 @@ pub fn main() !void {
         std.debug.print("Failed to find PEX-INFO in {s}!", .{cowsay_zip.path});
     }
 
-    try cowsay_zip.parallel_extract(
+    try cowsay_zip.parallelExtract(
         alloc,
         "/tmp/parallel/cowsay.pex",
         {},
-        SkipExtractDirs.should_extract,
+        SkipExtractDirs.shouldExtract,
         .{},
     );
     std.debug.print("Extract PEX parallel took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
-    try cowsay_zip.extract("/tmp/cowsay.pex", {}, SkipExtractDirs.should_extract);
+    try cowsay_zip.extract("/tmp/cowsay.pex", {}, SkipExtractDirs.shouldExtract);
     std.debug.print("Extract PEX took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
-    var zstd_zip = try write_zstd_zip(&cowsay_zip, 3);
+    var zstd_zip = try writeZstdZip(&cowsay_zip, 3);
     defer zstd_zip.deinit();
     std.debug.print(
         "Create zstd PEX from normal PEX took {d:.3}ms.\n",
         .{timer.lap() / 1_000_000},
     );
 
-    try zstd_zip.extract("/tmp/future.pex", {}, SkipExtractDirs.should_extract);
+    try zstd_zip.extract("/tmp/future.pex", {}, SkipExtractDirs.shouldExtract);
     std.debug.print("Extract zstd PEX took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
-    try zstd_zip.parallel_extract(
+    try zstd_zip.parallelExtract(
         alloc,
         "/tmp/parallel/future.pex",
         {},
-        SkipExtractDirs.should_extract,
+        SkipExtractDirs.shouldExtract,
         .{},
     );
     std.debug.print("Extract zstd PEX parallel took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
-    std.debug.print("Used {d} bytes.\n", .{allocator.bytes_used()});
+    std.debug.print("Used {d} bytes.\n", .{allocator.bytesUsed()});
 }

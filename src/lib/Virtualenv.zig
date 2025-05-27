@@ -13,7 +13,7 @@ site_packages_relpath: []const u8,
 
 const Self = @This();
 
-fn create_interpreter_relpath(allocator: std.mem.Allocator) ![]const u8 {
+fn createInterpreterRelpath(allocator: std.mem.Allocator) ![]const u8 {
     return try std.fs.path.join(
         allocator,
         res: {
@@ -26,7 +26,7 @@ fn create_interpreter_relpath(allocator: std.mem.Allocator) ![]const u8 {
     );
 }
 
-fn create_site_packages_relpath(allocator: std.mem.Allocator, interpreter: Interpreter) ![]const u8 {
+fn createSitePackagesRelpath(allocator: std.mem.Allocator, interpreter: Interpreter) ![]const u8 {
     if (native_os == .windows) {
         return try std.fs.path.join(allocator, &.{ "Lib", "site-packages" });
     }
@@ -90,7 +90,7 @@ pub fn load(allocator: std.mem.Allocator, venv_dir: std.fs.Dir) !Self {
     }
 
     if (interpreter_relpath == null) {
-        interpreter_relpath = try Self.create_interpreter_relpath(allocator);
+        interpreter_relpath = try Self.createInterpreterRelpath(allocator);
     }
 
     if (site_packages_relpath == null) {
@@ -100,7 +100,7 @@ pub fn load(allocator: std.mem.Allocator, venv_dir: std.fs.Dir) !Self {
         const interpreter = try Interpreter.identify(allocator, interpreter_path);
         defer interpreter.deinit();
 
-        site_packages_relpath = try Self.create_site_packages_relpath(allocator, interpreter.value);
+        site_packages_relpath = try Self.createSitePackagesRelpath(allocator, interpreter.value);
     }
 
     return .{
@@ -121,10 +121,10 @@ pub fn create(
         return error.UnparentedPythonError;
     };
 
-    const venv_python_relpath = try Self.create_interpreter_relpath(allocator);
+    const venv_python_relpath = try Self.createInterpreterRelpath(allocator);
     errdefer allocator.free(venv_python_relpath);
 
-    const site_packages_relpath = try Self.create_site_packages_relpath(
+    const site_packages_relpath = try Self.createSitePackagesRelpath(
         allocator,
         interpreter,
     );

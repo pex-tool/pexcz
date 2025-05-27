@@ -324,7 +324,7 @@ pub const Interpreter = struct {
         );
     }
 
-    pub fn ranked_tags(self: Self, allocator: std.mem.Allocator) !RankedTags {
+    pub fn rankedTags(self: Self, allocator: std.mem.Allocator) !RankedTags {
         return RankedTags.init(allocator, self.supported_tags);
     }
 };
@@ -336,7 +336,7 @@ pub const InterpreterIter = struct {
 
     const Self = @This();
 
-    fn from_search_path(allocator: std.mem.Allocator, search_path: ?[]const []const u8) !Self {
+    fn fromSearchPath(allocator: std.mem.Allocator, search_path: ?[]const []const u8) !Self {
         var path = search_path;
         if (path == null) {
             if (try getenv(allocator, "PATH")) |path_entries| {
@@ -489,7 +489,7 @@ pub const InterpreterIter = struct {
 test "compare with packaging" {
     const Virtualenv = @import("Virtualenv.zig");
 
-    var interpreters = try InterpreterIter.from_search_path(std.testing.allocator, null);
+    var interpreters = try InterpreterIter.fromSearchPath(std.testing.allocator, null);
     defer interpreters.deinit();
 
     var seen = std.BufSet.init(std.testing.allocator);

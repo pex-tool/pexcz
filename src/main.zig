@@ -43,7 +43,7 @@ fn inject(
     defer temp_dirs.deinit();
 
     const ShouldExtractOracle = struct {
-        pub fn should_extract(_: void, entry_name: []const u8) bool {
+        pub fn shouldExtract(_: void, entry_name: []const u8) bool {
             for ([_][]const u8{ "__main__.py", ".bootstrap/", "__pex__/" }) |name| {
                 if (std.mem.eql(u8, name, entry_name)) {
                     return false;
@@ -59,7 +59,7 @@ fn inject(
     };
 
     const temp_path = try temp_dirs.mkdtemp(false);
-    try zip.parallel_extract(allocator, temp_path, {}, ShouldExtractOracle.should_extract, .{});
+    try zip.parallelExtract(allocator, temp_path, {}, ShouldExtractOracle.shouldExtract, .{});
     std.debug.print("Extracted {s} to {s}\n", .{ pex, temp_path });
     std.debug.print("TODO: XXX: inject a pexcz bootstrap in: {s}\n", .{pex});
     _ = pexcz_python_pkg_root;

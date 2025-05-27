@@ -38,7 +38,7 @@ fn bootWindows(
 
     var alloc = pexcz.Allocator.init();
     defer {
-        log.info("Bytes used: {d}", .{alloc.bytes_used()});
+        log.info("Bytes used: {d}", .{alloc.bytesUsed()});
         alloc.deinit();
     }
 
