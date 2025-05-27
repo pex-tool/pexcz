@@ -3,7 +3,9 @@ const builtin = @import("builtin");
 const c = @cImport({
     @cInclude("zip.h");
 });
-const Zip = @import("zip").Zip;
+const pexcz = @import("pexcz");
+const Allocator = pexcz.Allocator;
+const Zip = pexcz.Zip;
 
 fn write_zstd_zip(source_zip: *Zip, compression_level: c.zip_uint32_t) !Zip {
     const dest_zip_path: [*c]const u8 = "future.pex";
@@ -11,7 +13,11 @@ fn write_zstd_zip(source_zip: *Zip, compression_level: c.zip_uint32_t) !Zip {
     errdefer dest_zip.deinit();
 
     for (0..source_zip.num_entries) |index| {
-        const entry_name = std.mem.span(c.zip_get_name(source_zip.handle, @intCast(index), 0) orelse {
+        const entry_name = std.mem.span(c.zip_get_name(
+            source_zip.handle,
+            @intCast(index),
+            0,
+        ) orelse {
             std.debug.print(
                 "Failed to get name of entry {d} from {s}.\n",
                 .{ index, source_zip.path },
@@ -67,62 +73,6 @@ fn write_zstd_zip(source_zip: *Zip, compression_level: c.zip_uint32_t) !Zip {
     return try Zip.init(dest_zip_path, .{});
 }
 
-const Debug = struct {
-    const DebugAllocator = std.heap.DebugAllocator(
-        .{ .safety = true, .verbose_log = true, .enable_memory_limit = true },
-    );
-
-    debug_allocator: DebugAllocator,
-
-    const Self = @This();
-
-    pub fn init() Self {
-        return .{ .debug_allocator = DebugAllocator.init };
-    }
-
-    pub fn deinit(self: *Self) void {
-        const check = self.debug_allocator.deinit();
-        std.debug.assert(check == .ok);
-    }
-
-    pub fn allocator(self: *Self) std.mem.Allocator {
-        return self.debug_allocator.allocator();
-    }
-
-    pub fn bytes_used(self: Self) usize {
-        return self.debug_allocator.total_requested_bytes;
-    }
-};
-
-const Arena = struct {
-    arena: std.heap.ArenaAllocator,
-
-    const Self = @This();
-
-    pub fn init() Self {
-        return .{ .arena = std.heap.ArenaAllocator.init(
-            if (builtin.link_libc) std.heap.c_allocator else std.heap.page_allocator,
-        ) };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.arena.deinit();
-    }
-
-    pub fn allocator(self: *Self) std.mem.Allocator {
-        return self.arena.allocator();
-    }
-
-    pub fn bytes_used(self: Self) usize {
-        return self.arena.queryCapacity();
-    }
-};
-
-const Allocator = switch (builtin.mode) {
-    .Debug => Debug,
-    else => Arena,
-};
-
 pub fn main() !void {
     var allocator = Allocator.init();
     defer allocator.deinit();
@@ -141,30 +91,35 @@ pub fn main() !void {
         std.fs.cwd().deleteTree(path) catch {};
     }
 
-    const skip_extract_dirs = (struct {
-        fn should_extract(name: []const u8) bool {
+    const SkipExtractDirs = struct {
+        pub fn should_extract(_: void, name: []const u8) bool {
             return name.len == 0 or '/' != name[name.len - 1];
         }
-    }).should_extract;
+    };
 
     var timer = try std.time.Timer.start();
 
     var cowsay_zip = try Zip.init("cowsay.pex", .{});
     defer cowsay_zip.deinit();
 
-    const pex_info = try cowsay_zip.extract_to_slice(alloc, "PEX-INFO");
-    defer alloc.free(pex_info);
-    std.debug.print("{s}\n", .{pex_info});
-    std.debug.print("Read PEX-INFO took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
+    if (try cowsay_zip.extract_to_slice(alloc, "PEX-INFO")) |pex_info| {
+        defer alloc.free(pex_info);
+        std.debug.print("{s}\n", .{pex_info});
+        std.debug.print("Read PEX-INFO took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
+    } else {
+        std.debug.print("Failed to find PEX-INFO in {s}!", .{cowsay_zip.path});
+    }
 
     try cowsay_zip.parallel_extract(
         alloc,
         "/tmp/parallel/cowsay.pex",
-        .{ .should_extract_fn = skip_extract_dirs },
+        {},
+        SkipExtractDirs.should_extract,
+        .{},
     );
     std.debug.print("Extract PEX parallel took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
-    try cowsay_zip.extract("/tmp/cowsay.pex", .{ .should_extract_fn = skip_extract_dirs });
+    try cowsay_zip.extract("/tmp/cowsay.pex", {}, SkipExtractDirs.should_extract);
     std.debug.print("Extract PEX took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
     var zstd_zip = try write_zstd_zip(&cowsay_zip, 3);
@@ -174,13 +129,15 @@ pub fn main() !void {
         .{timer.lap() / 1_000_000},
     );
 
-    try zstd_zip.extract("/tmp/future.pex", .{ .should_extract_fn = skip_extract_dirs });
+    try zstd_zip.extract("/tmp/future.pex", {}, SkipExtractDirs.should_extract);
     std.debug.print("Extract zstd PEX took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
     try zstd_zip.parallel_extract(
         alloc,
         "/tmp/parallel/future.pex",
-        .{ .should_extract_fn = skip_extract_dirs },
+        {},
+        SkipExtractDirs.should_extract,
+        .{},
     );
     std.debug.print("Extract zstd PEX parallel took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 

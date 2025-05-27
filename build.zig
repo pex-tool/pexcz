@@ -1,14 +1,16 @@
 const std = @import("std");
 
+// TODO: XXX: Uncomment musl variants and arm (32 bit). There are currently issues building
+//  libzip / zstd / zlib.
 const supported_targets: []const std.Target.Query = &.{
     // Linux targets:
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
-    .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
-    .{ .cpu_arch = .arm, .os_tag = .linux },
+    // .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
+    // .{ .cpu_arch = .arm, .os_tag = .linux },
     .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .gnu },
-    .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .musl },
+    // .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
-    .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
+    // .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
     // Macos targets:
     .{ .cpu_arch = .aarch64, .os_tag = .macos },
     .{ .cpu_arch = .x86_64, .os_tag = .macos },
@@ -52,6 +54,8 @@ pub fn build(b: *std.Build) !void {
     for (target_queries) |tq| {
         const rt = b.resolveTargetQuery(tq);
 
+        const libzip_dep = try build_libzip(b, rt, optimize);
+
         const lib = b.addModule("pexcz", .{
             .root_source_file = b.path("src/lib.zig"),
             .target = rt,
@@ -65,6 +69,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
         lib.addImport("vendor", vendor);
+        lib.linkLibrary(libzip_dep);
 
         const target_dir = try tq.zigTriple(b.allocator);
 
@@ -99,7 +104,10 @@ pub fn build(b: *std.Build) !void {
         exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, exe_output.dest_sub_path });
         b.getInstallStep().dependOn(&exe_output.step);
 
-        if (cur_tgt.result.os.tag == rt.result.os.tag and cur_tgt.result.cpu.arch == rt.result.cpu.arch and cur_tgt.result.abi == rt.result.abi) {
+        if (cur_tgt.result.os.tag == rt.result.os.tag and
+            cur_tgt.result.cpu.arch == rt.result.cpu.arch and
+            cur_tgt.result.abi == rt.result.abi)
+        {
             const run_cmd = b.addRunArtifact(exe);
             run_cmd.step.dependOn(b.getInstallStep());
             if (b.args) |args| {
@@ -109,14 +117,6 @@ pub fn build(b: *std.Build) !void {
             run_step.dependOn(&run_cmd.step);
         }
 
-        const zip = b.addModule("zip", .{
-            .root_source_file = b.path("src/zip/root.zig"),
-            .target = rt,
-            .optimize = optimize,
-        });
-        const libzip_dep = try build_libzip(b, rt, optimize);
-        zip.linkLibrary(libzip_dep);
-
         const zip_exe = b.addExecutable(.{
             .name = "zipopen",
             .root_module = b.addModule("zipopen", .{
@@ -125,7 +125,7 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
             }),
         });
-        zip_exe.root_module.addImport("zip", zip);
+        zip_exe.root_module.addImport("pexcz", lib);
         zip_exe.linkLibrary(libzip_dep);
         zip_exe.linkLibC();
         const zip_exe_output = b.addInstallArtifact(zip_exe, .{});
@@ -382,6 +382,10 @@ fn build_libzip(
     const zstd_dependency = b.dependency("zstd", .{
         .target = target,
         .optimize = optimize,
+        .minify = true,
+        .dictbuilder = false,
+        .@"exclude-compressors-dfast-and-up" = true,
+        .@"exclude-compressors-greedy-and-up" = true,
     });
     lib.linkLibrary(zstd_dependency.artifact("zstd"));
 

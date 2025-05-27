@@ -33,62 +33,33 @@ fn usage(prog: []u8, message: []const u8) noreturn {
 
 fn inject(
     allocator: std.mem.Allocator,
-    pex: []const u8,
+    pex: [*c]const u8,
     pexcz_python_pkg_root: ?[]const u8,
 ) !void {
-    var zip_file = try std.fs.cwd().openFile(pex, .{});
-    defer zip_file.close();
-
-    const zip_stream = zip_file.seekableStream();
-    var zip = pexcz.ZipFile.init(zip_stream);
-    var zip_entries = try zip.entry_iter();
-
-    var pool: std.Thread.Pool = undefined;
-    try pool.init(
-        .{
-            .allocator = allocator,
-            .n_jobs = @min(zip_entries.count(), std.Thread.getCpuCount() catch 1),
-        },
-    );
-    defer pool.deinit();
-
-    const Zip = struct {
-        fn extract(
-            entry: pexcz.ZipFile.Entry,
-            zip_path: []const u8,
-            dest_dir_path: []const u8,
-        ) void {
-            defer entry.deinit();
-            return entry.extract(zip_path, dest_dir_path) catch |err| {
-                std.debug.print(
-                    "Failed to extract zip entry {s} from {s}: {}\n",
-                    .{ entry.name, zip_path, err },
-                );
-            };
-        }
-    };
+    var zip = try pexcz.Zip.init(pex, .{});
+    defer zip.deinit();
 
     var temp_dirs = pexcz.fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
 
+    const ShouldExtractOracle = struct {
+        pub fn should_extract(_: void, entry_name: []const u8) bool {
+            for ([_][]const u8{ "__main__.py", ".bootstrap/", "__pex__/" }) |name| {
+                if (std.mem.eql(u8, name, entry_name)) {
+                    return false;
+                }
+            }
+            for ([_][]const u8{ ".bootstrap/", "__pex__/" }) |name| {
+                if (std.mem.startsWith(u8, entry_name, name)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    };
+
     const temp_path = try temp_dirs.mkdtemp(false);
-    var wg = std.Thread.WaitGroup{};
-    next_entry: while (try zip_entries.next(allocator)) |zip_entry| {
-        for ([_][]const u8{ "__main__.py", ".bootstrap/", "__pex__/" }) |name| {
-            if (std.mem.eql(u8, name, zip_entry.name)) {
-                zip_entry.deinit();
-                continue :next_entry;
-            }
-        }
-        for ([_][]const u8{ ".bootstrap/", "__pex__/" }) |name| {
-            if (std.mem.startsWith(u8, zip_entry.name, name)) {
-                zip_entry.deinit();
-                continue :next_entry;
-            }
-        }
-        pool.spawnWg(&wg, Zip.extract, .{ zip_entry, pex, temp_path });
-    }
-    pool.waitAndWork(&wg);
+    try zip.parallel_extract(allocator, temp_path, {}, ShouldExtractOracle.should_extract, .{});
     std.debug.print("Extracted {s} to {s}\n", .{ pex, temp_path });
     std.debug.print("TODO: XXX: inject a pexcz bootstrap in: {s}\n", .{pex});
     _ = pexcz_python_pkg_root;

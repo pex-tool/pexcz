@@ -7,16 +7,16 @@ const Tag = @import("Tag.zig");
 const VENV_PEX_PY = @embedFile("venv_pex.py");
 const Virtualenv = @import("Virtualenv.zig");
 const WheelInfo = @import("WheelInfo.zig");
-const ZipFile = @import("zip.zig").Zip(std.fs.File.SeekableStream);
+const Zip = @import("Zip.zig");
 
 pub const main_py_relpath = "__main__.py";
 
-pex_path: []const u8,
+pex_path: [*c]const u8,
 pex_info: PexInfo,
 
 const Self = @This();
 
-pub fn init(pex_path: [*:0]const u8, pex_info: PexInfo) !Self {
+pub fn init(pex_path: [*c]const u8, pex_info: PexInfo) !Self {
     return .{ .pex_path = std.mem.span(pex_path), .pex_info = pex_info };
 }
 
@@ -50,11 +50,20 @@ const WheelsToInstall = struct {
     allocator: std.mem.Allocator,
     entries: []const WheelToInstall,
 
-    fn deinit(self: @This()) void {
+    fn deinit(self: WheelsToInstall) void {
         for (self.entries) |entry| {
             entry.deinit();
         }
         self.allocator.free(self.entries);
+    }
+
+    fn should_extract(self: WheelsToInstall, entry_name: []const u8) bool {
+        for (self.entries) |entry| {
+            if (std.mem.startsWith(u8, entry_name, entry.prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 };
 
@@ -62,8 +71,7 @@ fn selectWheelsToInstall(
     self: Self,
     allocator: std.mem.Allocator,
     interpreter: Interpreter,
-    zip_entries_by_name: std.StringHashMap(ZipFile.Entry),
-    zip_stream: ZipFile.SeekableStream,
+    zip: *Zip,
 ) !WheelsToInstall {
     var timer = try std.time.Timer.start();
     defer log.info(
@@ -86,8 +94,8 @@ fn selectWheelsToInstall(
 
         for (wheel_info.tags) |tag| {
             if (ranked_tags.rank(tag)) |rank| {
-                std.debug.print(
-                    "{d} {s} {s} (raw: {s}) <- {s} matches {s}\n",
+                log.info(
+                    "{d} {s} {s} (raw: {s}) <- {s} matches {s}",
                     .{
                         rank,
                         tag,
@@ -99,7 +107,7 @@ fn selectWheelsToInstall(
                 );
                 const wheel_prefix = try std.fmt.allocPrint(allocator, ".deps/{s}", .{wheel_name});
 
-                const wheel_layout = try std.fmt.allocPrint(
+                const wheel_layout = try std.fmt.allocPrintZ(
                     allocator,
                     "{s}/.layout.json",
                     .{wheel_prefix},
@@ -107,8 +115,7 @@ fn selectWheelsToInstall(
                 defer allocator.free(wheel_layout);
 
                 var stash_dir: ?[]const u8 = null;
-                if (zip_entries_by_name.get(wheel_layout)) |entry| {
-                    const layout_data = try entry.extract_to_slice(allocator, zip_stream);
+                if (try zip.extract_to_slice(allocator, wheel_layout)) |layout_data| {
                     const layout = try std.json.parseFromSlice(
                         WheelLayout,
                         allocator,
@@ -148,64 +155,18 @@ pub fn install(
         .{ self.pex_path, timer.read() / 1_000_000 },
     );
 
-    var zip_file = try std.fs.cwd().openFile(self.pex_path, .{});
-    defer zip_file.close();
-
-    const zip_stream = zip_file.seekableStream();
-    var zip = ZipFile.init(zip_stream);
-
-    var zip_entries = try zip.entry_iter();
-    var zip_entries_by_name = std.StringHashMap(ZipFile.Entry).init(allocator);
-    defer {
-        var vi = zip_entries_by_name.valueIterator();
-        while (vi.next()) |v| {
-            v.deinit();
-        }
-        zip_entries_by_name.deinit();
-    }
-
-    try zip_entries_by_name.ensureTotalCapacity(@intCast(zip_entries.count()));
-    while (try zip_entries.next(allocator)) |entry| {
-        try zip_entries_by_name.put(entry.name, entry);
-    }
+    var zip = try Zip.init(self.pex_path, .{});
+    defer zip.deinit();
 
     const wheels_to_install = try self.selectWheelsToInstall(
         allocator,
         interpreter,
-        zip_entries_by_name,
-        zip_stream,
+        &zip,
     );
     defer wheels_to_install.deinit();
 
-    const Zip = struct {
-        fn extract(
-            entry: *ZipFile.Entry,
-            zip_path: []const u8,
-            dest_dir_path: []const u8,
-        ) void {
-            entry.extract(zip_path, dest_dir_path) catch |err| {
-                std.debug.print(
-                    "Failed to extract zip entry {s} from {s}: {}\n",
-                    .{ entry.name, zip_path, err },
-                );
-            };
-        }
-    };
-
-    var pool: std.Thread.Pool = undefined;
-    try pool.init(
-        .{
-            .allocator = allocator,
-            .n_jobs = @min(zip_entries.count(), std.Thread.getCpuCount() catch 1),
-        },
-    );
-    defer pool.deinit();
-
     const venv = try Virtualenv.create(allocator, interpreter, work_dir, include_pip);
     errdefer venv.deinit();
-
-    var site_packages_dir = try work_dir.makeOpenPath(venv.site_packages_relpath, .{});
-    defer site_packages_dir.close();
 
     const site_packages_path = try std.fs.path.join(
         allocator,
@@ -213,17 +174,13 @@ pub fn install(
     );
     defer allocator.free(site_packages_path);
 
-    var wg: std.Thread.WaitGroup = .{};
-    var zip_entries_iter = zip_entries_by_name.valueIterator();
-    while (zip_entries_iter.next()) |zip_entry| {
-        for (wheels_to_install.entries) |wheel_to_install| {
-            if (std.mem.startsWith(u8, zip_entry.name, wheel_to_install.prefix)) {
-                pool.spawnWg(&wg, Zip.extract, .{ zip_entry, self.pex_path, site_packages_path });
-                break;
-            }
-        }
-    }
-    pool.waitAndWork(&wg);
+    try zip.parallel_extract(
+        allocator,
+        site_packages_path,
+        wheels_to_install,
+        WheelsToInstall.should_extract,
+        .{},
+    );
     log.info("VenvPex unzip took {d:.3}ms", .{timer.read() / 1_000_000});
 
     const Wheel = struct {
@@ -241,8 +198,8 @@ pub fn install(
                 site_packages_dir_path,
                 entry_name,
             ) catch |err| {
-                std.debug.print(
-                    ">>> [{d}] Failed to install wheel {s}: {}\n",
+                log.err(
+                    "[{d}] Failed to install wheel {s}: {}",
                     .{ std.Thread.getCurrentId(), entry_name, err },
                 );
             };
@@ -362,6 +319,9 @@ pub fn install(
         }
     };
 
+    var site_packages_dir = try work_dir.makeOpenPath(venv.site_packages_relpath, .{});
+    defer site_packages_dir.close();
+
     var deps_dir = try site_packages_dir.openDir(".deps", .{ .iterate = true });
     defer deps_dir.close();
 
@@ -380,8 +340,17 @@ pub fn install(
         }
     }
 
+    var pool: std.Thread.Pool = undefined;
+    try pool.init(
+        .{
+            .allocator = allocator,
+            .n_jobs = @min(zip.num_entries, std.Thread.getCpuCount() catch 1),
+        },
+    );
+    defer pool.deinit();
+
     var alloc: std.heap.ThreadSafeAllocator = .{ .child_allocator = allocator };
-    wg.reset();
+    var wg: std.Thread.WaitGroup = .{};
     for (deps.items) |dep| {
         pool.spawnWg(
             &wg,
