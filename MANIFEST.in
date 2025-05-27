@@ -2,10 +2,6 @@ graft build-system
 graft src
 graft tools
 
-graft python/pexcz/bin
-graft python/pexcz/lib
-graft python/tests
-
 include build.zig
 include build.zig.zon
 

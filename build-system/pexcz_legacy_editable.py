@@ -21,7 +21,7 @@ def main():
     zig.build_components()
 
     with open(os.path.join(site_packages, "__editable__.pexcz.pth"), "w") as fp:
-        print(os.path.abspath(os.path.join("python")), file=fp)
+        print(os.path.abspath(os.path.join("src", "python")), file=fp)
 
 
 if __name__ == "__main__":

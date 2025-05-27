@@ -5,6 +5,8 @@ const Allocator = pexcz.Allocator;
 const Zip = pexcz.Zip;
 const c = Zip.c;
 
+const __main__: []const u8 = @embedFile("python/pexcz/__init__.py");
+
 const log = std.log.scoped(.pexcz);
 
 fn help(prog: []const u8) noreturn {
@@ -69,7 +71,7 @@ fn transferEntries(
         }
 
         if (std.mem.endsWith(u8, entry_name, "/")) {
-            const dest_idx = c.zip_add_dir(dest_pex.handle, entry_name);
+            const dest_idx = c.zip_dir_add(dest_pex.handle, entry_name, 0);
             if (dest_idx < 0) {
                 log.err(
                     "Failed to add directory entry {d} ({s}) to {s}: {s}",
@@ -157,11 +159,29 @@ fn inject(
 
     const czex = try transferEntries(&pex, czex_path, .{ .method = .zstd, .level = 3 });
     defer czex.deinit();
+
+    const src = c.zip_source_buffer(czex.handle, __main__.ptr, __main__.len, 0) orelse {
+        log.err(
+            "Failed to create as zip source buffer from __main__.py to add to {s}: {s}",
+            .{ czex.path, c.zip_strerror(czex.handle) },
+        );
+        return error.ZipEntryOpenMainError;
+    };
+    const dest_idx = c.zip_file_add(czex.handle, "__main__.py", src, 0);
+    if (dest_idx < 0) {
+        log.err(
+            "Failed to add __main__.py file entry to {s}: {s}",
+            .{ czex.path, c.zip_strerror(czex.handle) },
+        );
+        return error.ZipEntryAddMainError;
+    }
+
     std.debug.print("Injected pexcz runtime for {s} in {s}\n", .{ pex_path, czex.path });
     std.debug.print("TODO: XXX: actually inject a pexcz bootstrap in: {s}\n", .{czex_path});
     _ = pexcz_python_pkg_root;
-    // 4. write __main__.py
-    // 5. write .bootstrap/
+    // 4. write .lib/
+    // ?4.5. re-write PEX-INFO ... could czex use new fields added?
+    // 5. write __main__.py
     // 6. TODO(John Sirois): XXX: handle __pex__/ import hook
 }
 

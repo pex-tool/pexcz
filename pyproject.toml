@@ -18,7 +18,7 @@ requires-python = ">=2.7"
 dependencies = []
 
 [tool.setuptools.packages.find]
-where = ["python"]
+where = ["src/python"]
 include = ["pexcz*"]
 
 [dependency-groups]
@@ -83,15 +83,14 @@ args = [
     "--python-version", "{-py:{markers.python_version}}",
     "--cache-dir", ".mypy_cache_{markers.python_version}",
     "build-system",
-    "python",
     "src"
 ]
 
 [tool.dev-cmd.commands.pytest]
 python = "{-py:}"
-env = {"PYTHONHASHSEED" = "{--hashseed}"}
+env = {"PYTHONPATH" = "..", "PYTHONHASHSEED" = "{--hashseed}"}
 args = ["pytest"]
-cwd = "python/tests"
+cwd = "src/python/tests"
 accepts-extra-args = true
 
 [tool.dev-cmd.commands.zig]

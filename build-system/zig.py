@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
     from typing import Any  # noqa: F401
 
-PEXCZ_LIB_DIR = os.path.abspath(os.path.join("python", "pexcz", ".lib"))
+PEXCZ_LIB_DIR = os.path.abspath(os.path.join("src", "python", "pexcz", ".lib"))
 
 IS_WINDOWS = platform.system() == "Windows"
 
