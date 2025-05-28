@@ -13,3 +13,4 @@ __pycache__/
 /zig-out/
 
 /src/python/pexcz/.lib/
+/src/.lib/

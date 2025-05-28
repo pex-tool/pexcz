@@ -26,6 +26,7 @@ pub fn build(b: *std.Build) !void {
         All,
         Current,
     };
+
     const requested_tgts = b.option(
         Targets,
         "targets",
@@ -51,7 +52,21 @@ pub fn build(b: *std.Build) !void {
     const virtualenv_py_resource = tool_step.addOutputFileArg(VIRTUALENV_PY_RESOURCE_BASE_NAME);
     const known_folders = b.dependency("known_folders", .{}).module("known-folders");
 
+    var target_dirs = try std.ArrayList([]const u8).initCapacity(b.allocator, target_queries.len);
+    defer target_dirs.deinit();
+
+    var options = b.addOptions();
     for (target_queries) |tq| {
+        const target_dir = try tq.zigTriple(b.allocator);
+        try target_dirs.append(target_dir);
+    }
+    options.addOption([]const []const u8, "libs", target_dirs.items);
+    options.addOptionPath("libs_root", b.path("src"));
+    const config = options.createModule();
+
+    var update_source_files = b.addUpdateSourceFiles();
+
+    for (target_queries, target_dirs.items) |tq, target_dir| {
         const rt = b.resolveTargetQuery(tq);
 
         const libzip_dep = try build_libzip(b, rt, optimize);
@@ -65,8 +80,6 @@ pub fn build(b: *std.Build) !void {
         lib.addImport("known-folders", known_folders);
         lib.linkLibrary(libzip_dep);
 
-        const target_dir = try tq.zigTriple(b.allocator);
-
         const clib = b.addSharedLibrary(.{
             .name = "pexcz",
             .root_module = b.addModule("pexcz", .{
@@ -76,6 +89,15 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         clib.root_module.addImport("pexcz", lib);
+
+        const library_name = try std.fmt.allocPrint(
+            b.allocator,
+            "{s}pexcz{s}",
+            .{ rt.result.libPrefix(), rt.result.dynamicLibSuffix() },
+        );
+        const sub_path = try std.fs.path.join(b.allocator, &.{ "src", ".lib", target_dir, library_name });
+        update_source_files.addCopyFileToSource(clib.getEmittedBin(), sub_path);
+        options.addOptionPath(target_dir, b.path(sub_path));
 
         var clib_output = b.addInstallArtifact(clib, .{});
         clib_output.dest_dir = .lib;
@@ -91,6 +113,8 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         exe.root_module.addImport("pexcz", lib);
+        exe.root_module.addImport("config", config);
+        exe.step.dependOn(&update_source_files.step);
         var exe_output = b.addInstallArtifact(exe, .{});
         exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, exe_output.dest_sub_path });
         b.getInstallStep().dependOn(&exe_output.step);

@@ -1,9 +1,31 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 const pexcz = @import("pexcz");
 const Allocator = pexcz.Allocator;
 const Zip = pexcz.Zip;
 const c = Zip.c;
+const config = @import("config");
+
+const EmbeddedLib = struct {
+    []const u8,
+    []const u8,
+};
+
+fn genLibMap() ![config.libs.len]EmbeddedLib {
+    var embedded_libs: [config.libs.len]EmbeddedLib = undefined;
+    comptime var i = 0;
+    inline for (config.libs) |target_dir| {
+        const lib_path = @field(config, target_dir);
+        const lib_data = @embedFile(lib_path);
+        embedded_libs[i][0] = lib_path[config.libs_root.len + 1 ..];
+        embedded_libs[i][1] = lib_data;
+        i += 1;
+    }
+    return embedded_libs;
+}
+
+const libs = std.StaticStringMap([]const u8).initComptime(genLibMap() catch unreachable);
 
 const __main__: []const u8 = @embedFile("python/pexcz/__init__.py");
 
@@ -11,13 +33,10 @@ const log = std.log.scoped(.pexcz);
 
 fn help(prog: []const u8) noreturn {
     std.debug.print(
-        \\Usage: {s} --help | inject <PEX> [-P <PATH>]
+        \\Usage: {s} --help | inject <PEX>
         \\
         \\ inject:  Inject a pexcz bootstrap in the given PEX file.
         \\
-        \\Inject Options:
-        \\ -P, --pexcz-python-package-root:  The path where the pexcz Python package to inject can
-        \\                                   be found.
         \\General Options:
         \\ -h, --help:  Print this help and exit.
         \\
@@ -29,7 +48,7 @@ fn help(prog: []const u8) noreturn {
 
 fn usage(prog: []u8, message: []const u8) noreturn {
     std.debug.print(
-        \\Usage: {s} --help | inject <PEX> [-P <PATH>]
+        \\Usage: {s} --help | inject <PEX>
         \\
         \\{s}
     ,
@@ -157,6 +176,27 @@ fn transferEntries(
     return dest_pex;
 }
 
+fn embedLibs(pex: *Zip) !void {
+    for (libs.keys(), libs.values()) |lib_rel_path, lib_data| {
+        const src = c.zip_source_buffer(pex.handle, lib_data.ptr, lib_data.len, 0) orelse {
+            log.err(
+                "Failed to create a zip source buffer from embedded {s} to add to {s}: {s}",
+                .{ lib_rel_path, pex.path, c.zip_strerror(pex.handle) },
+            );
+            return error.ZipEntryOpenMainError;
+        };
+        const dest_idx = c.zip_file_add(pex.handle, lib_rel_path.ptr, src, 0);
+        if (dest_idx < 0) {
+            log.err(
+                "Failed to add {s} file entry to {s}: {s}",
+                .{ lib_rel_path, pex.path, c.zip_strerror(pex.handle) },
+            );
+            return error.ZipEntryAddMainError;
+        }
+        try setEntryMtime(pex, @intCast(dest_idx), "__main__.py");
+    }
+}
+
 const ProgressContext = extern struct {
     progress: *std.Progress.Node,
     total_items: usize,
@@ -175,7 +215,6 @@ fn record_progress(_: ?*c.zip_t, progress: f64, user_data: ?*anyopaque) callconv
 fn inject(
     allocator: std.mem.Allocator,
     pex_path: [*c]const u8,
-    pexcz_python_pkg_root: ?[]const u8,
 ) !void {
     var pex = try Zip.init(pex_path, .{});
     defer pex.deinit();
@@ -198,9 +237,11 @@ fn inject(
     var czex = try transferEntries(&pex, czex_path, .{ .method = .zstd, .level = 3 });
     errdefer czex.deinit();
 
+    try embedLibs(&czex);
+
     const src = c.zip_source_buffer(czex.handle, __main__.ptr, __main__.len, 0) orelse {
         log.err(
-            "Failed to create as zip source buffer from __main__.py to add to {s}: {s}",
+            "Failed to create a zip source buffer from __main__.py to add to {s}: {s}",
             .{ czex.path, c.zip_strerror(czex.handle) },
         );
         return error.ZipEntryOpenMainError;
@@ -231,20 +272,17 @@ fn inject(
     var czex_file = try std.fs.cwd().openFileZ(czex.path, .{});
     defer czex_file.close();
 
-    const metadata = try czex_file.metadata();
-    var permissions = metadata.permissions();
-    permissions.inner.unixSet(.user, .{ .execute = true });
-    permissions.inner.unixSet(.group, .{ .execute = true });
-    permissions.inner.unixSet(.other, .{ .execute = true });
-    try czex_file.setPermissions(permissions);
+    if (builtin.target.os.tag != .windows) {
+        const metadata = try czex_file.metadata();
+        var permissions = metadata.permissions();
+        permissions.inner.unixSet(.user, .{ .execute = true });
+        permissions.inner.unixSet(.group, .{ .execute = true });
+        permissions.inner.unixSet(.other, .{ .execute = true });
+        try czex_file.setPermissions(permissions);
+    }
 
     std.debug.print("Injected pexcz runtime for {s} in {s}\n", .{ pex_path, czex.path });
-    std.debug.print("TODO: XXX: actually inject a pexcz bootstrap in: {s}\n", .{czex_path});
-    _ = pexcz_python_pkg_root;
-    // 4. write .lib/
-    // ?4.5. re-write PEX-INFO ... could czex use new fields added?
-    // 5. write __main__.py
-    // 6. TODO(John Sirois): XXX: handle __pex__/ import hook
+    // TODO(John Sirois): XXX: handle __pex__/ import hook
 }
 
 pub fn main() !void {
@@ -260,7 +298,6 @@ pub fn main() !void {
         if (std.mem.eql(u8, "-h", arg) or std.mem.eql(u8, "--help", arg)) {
             help(prog);
         } else if (std.mem.eql(u8, "inject", arg)) {
-            const pexcz_python_package_root: ?[]const u8 = null;
             if (args.len <= i + 1) {
                 usage(prog, "The inject subcommand requires a PEX file argument.");
             } else if (args.len > i + 2) {
@@ -275,14 +312,9 @@ pub fn main() !void {
                     ),
                 );
             }
-            if (pexcz_python_package_root) |pppr| {
-                try inject(allocator, args[i + 1], pppr);
-                std.process.exit(0);
-            } else {
-                try inject(allocator, args[i + 1], null);
-                std.process.exit(0);
-                // usage(prog, "");
-            }
+
+            try inject(allocator, args[i + 1]);
+            std.process.exit(0);
         } else {
             usage(prog, try std.fmt.allocPrint(allocator, "Unexpected argument: {s}", .{arg}));
         }
