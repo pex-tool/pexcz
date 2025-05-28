@@ -196,7 +196,7 @@ fn inject(
 
     var root_progress = std.Progress.start(.{
         .initial_delay_ns = 50 * std.time.ns_per_ms,
-        .refresh_rate_ns = 17 * std.time.ns_per_ms,
+        .refresh_rate_ns = 17 * std.time.ns_per_ms, // ~60Hz
         .root_name = "pexcz",
     });
     defer root_progress.end();
