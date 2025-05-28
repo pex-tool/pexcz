@@ -43,13 +43,32 @@ const CompressionOptions = struct {
     level: i8 = 0,
 };
 
+fn setEntryMtime(pex: *Zip, entry_index: c.zip_uint64_t, entry_name: []const u8) !void {
+    const res = c.zip_file_set_dostime(
+        pex.handle,
+        entry_index,
+        // This is January 1st 1980 00:00:00.
+        // See: https://libzip.org/documentation/zip_file_set_dostime.html#DESCRIPTION
+        // hr   min    sec
+        0b00000_000000_00000, // time
+        // 1980+  mon  day
+        0b0000000_0001_00001, // date
+        0,
+    );
+    if (res < 0) {
+        log.err(
+            "Failed to set mtime on {s} file entry in {s}: {s}",
+            .{ entry_name, pex.path, c.zip_strerror(pex.handle) },
+        );
+        return error.ZipEntryAddMainError;
+    }
+}
+
 fn transferEntries(
     source_pex: *Zip,
     dest_pex_path: [*c]const u8,
     options: CompressionOptions,
 ) !Zip {
-    // TODO: XXX: Set dostime on entries.
-    //
     var dest_pex = try Zip.init(dest_pex_path, .{ .mode = .truncate });
     errdefer dest_pex.deinit();
 
@@ -81,6 +100,7 @@ fn transferEntries(
                 );
                 return error.ZipEntryAddDirectoryError;
             }
+            try setEntryMtime(&dest_pex, @intCast(dest_idx), entry_name);
             continue;
         }
 
@@ -115,6 +135,7 @@ fn transferEntries(
             );
             return error.ZipEntryAddFileError;
         }
+        try setEntryMtime(&dest_pex, @intCast(dest_idx), entry_name);
         if (retain_original_compression) {
             continue;
         }
@@ -174,10 +195,9 @@ fn inject(
     };
     defer allocator.free(czex_path);
 
-    const czex = try transferEntries(&pex, czex_path, .{ .method = .zstd, .level = 3 });
+    var czex = try transferEntries(&pex, czex_path, .{ .method = .zstd, .level = 3 });
     errdefer czex.deinit();
 
-    // TODO: XXX: Set dostime on entries.
     const src = c.zip_source_buffer(czex.handle, __main__.ptr, __main__.len, 0) orelse {
         log.err(
             "Failed to create as zip source buffer from __main__.py to add to {s}: {s}",
@@ -193,6 +213,7 @@ fn inject(
         );
         return error.ZipEntryAddMainError;
     }
+    try setEntryMtime(&czex, @intCast(dest_idx), "__main__.py");
 
     var root_progress = std.Progress.start(.{
         .initial_delay_ns = 50 * std.time.ns_per_ms,
