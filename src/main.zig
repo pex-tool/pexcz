@@ -48,6 +48,8 @@ fn transferEntries(
     dest_pex_path: [*c]const u8,
     options: CompressionOptions,
 ) !Zip {
+    // TODO: XXX: Set dostime on entries.
+    //
     var dest_pex = try Zip.init(dest_pex_path, .{ .mode = .truncate });
     errdefer dest_pex.deinit();
 
@@ -134,6 +136,21 @@ fn transferEntries(
     return dest_pex;
 }
 
+const ProgressContext = extern struct {
+    progress: *std.Progress.Node,
+    total_items: usize,
+};
+
+fn record_progress(_: ?*c.zip_t, progress: f64, user_data: ?*anyopaque) callconv(.c) void {
+    const progress_ctx: *ProgressContext = @ptrCast(@alignCast(user_data.?));
+    const total_items: f64 = @floatFromInt(progress_ctx.total_items);
+    const completed: usize = @intFromFloat(@round(@max(0, @min(
+        total_items,
+        progress * total_items,
+    ))));
+    progress_ctx.progress.setCompletedItems(completed);
+}
+
 fn inject(
     allocator: std.mem.Allocator,
     pex_path: [*c]const u8,
@@ -158,8 +175,9 @@ fn inject(
     defer allocator.free(czex_path);
 
     const czex = try transferEntries(&pex, czex_path, .{ .method = .zstd, .level = 3 });
-    defer czex.deinit();
+    errdefer czex.deinit();
 
+    // TODO: XXX: Set dostime on entries.
     const src = c.zip_source_buffer(czex.handle, __main__.ptr, __main__.len, 0) orelse {
         log.err(
             "Failed to create as zip source buffer from __main__.py to add to {s}: {s}",
@@ -175,6 +193,20 @@ fn inject(
         );
         return error.ZipEntryAddMainError;
     }
+
+    var root_progress = std.Progress.start(.{
+        .initial_delay_ns = 50 * std.time.ns_per_ms,
+        .refresh_rate_ns = 17 * std.time.ns_per_ms,
+        .root_name = "pexcz",
+    });
+    defer root_progress.end();
+    var progress = root_progress.start("inject", pex.num_entries);
+    defer progress.end();
+
+    var progress_ctx: ProgressContext = .{ .progress = &progress, .total_items = pex.num_entries };
+    const precision: f64 = 1.0 / @as(f64, @floatFromInt(pex.num_entries));
+    _ = c.zip_register_progress_callback_with_state(czex.handle, precision, record_progress, null, &progress_ctx);
+    czex.deinit();
 
     std.debug.print("Injected pexcz runtime for {s} in {s}\n", .{ pex_path, czex.path });
     std.debug.print("TODO: XXX: actually inject a pexcz bootstrap in: {s}\n", .{czex_path});
