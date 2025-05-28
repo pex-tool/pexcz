@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) !void {
 
         const libzip_dep = try build_libzip(b, rt, optimize);
 
-        const lib = b.addModule("pexcz", .{
+        const lib = b.createModule(.{
             .root_source_file = b.path("src/lib.zig"),
             .target = rt,
             .optimize = optimize,
@@ -76,10 +76,7 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         clib.root_module.addImport("pexcz", lib);
-        // Currently we need to do this to work around SIGABRT / SIGSEGV issues coming from Zig
-        // Linux thread spawning code when initializing thread pools while loaded as a library from
-        // Python.
-        clib.linkLibC();
+
         var clib_output = b.addInstallArtifact(clib, .{});
         clib_output.dest_dir = .lib;
         clib_output.dest_sub_path = b.pathJoin(&.{ target_dir, clib_output.dest_sub_path });
