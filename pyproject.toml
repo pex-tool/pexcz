@@ -44,14 +44,14 @@ extend-safe-fixes = ["F401"]
 [tool.uv]
 required-version = ">=0.6"
 # TODO(John Sirois): The one case this doesn't cover is removal of the zig artifacts from
-#  python/pexcz/{bin,lib}. Currently, uv is blind to this.
+#  src/python/pexcz/{bin,lib}. Currently, uv is blind to this.
 cache-keys = [
     # Python:
     "build-system/**/*",
     "pyproject.toml",
     "setup.py",
     "MANIFEST.in",
-    # Zig:
+    # Zig + Python:
     "build.zig",
     "build.zig.zon",
     "src/**/*",
