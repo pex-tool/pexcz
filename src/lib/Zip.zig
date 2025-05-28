@@ -268,7 +268,11 @@ pub fn parallelExtract(
     }
 
     var worker_err = std.atomic.Value(ErrInt).init(0);
-    var extractor: ParallelExtractor = .{ .errored = &worker_err, .zips = zips.items, .dest_dir = dest_dir_path };
+    var extractor: ParallelExtractor = .{
+        .errored = &worker_err,
+        .zips = zips.items,
+        .dest_dir = dest_dir_path,
+    };
 
     var wg = std.Thread.WaitGroup{};
     for (0..@intCast(self.num_entries)) |zip_idx| {
