@@ -206,7 +206,7 @@ class ELFFile(object):
                 self._e_phnum,  # Number of sections.
             ) = self._read(e_fmt)
         except struct.error as e:
-            raise self.Invalid("unable to parse machine and section information") from e
+            raise self.Invalid("unable to parse machine and section information: {err}".format(err=e))
 
     def __enter__(self):
         # type: () -> ELFFile
