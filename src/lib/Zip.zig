@@ -200,7 +200,10 @@ const ParallelExtractOptions = struct {
     num_threads: ?usize = null,
 };
 
+const ErrInt = std.meta.Int(.unsigned, @bitSizeOf(anyerror));
+
 const ParallelExtractor = struct {
+    errored: *std.atomic.Value(ErrInt),
     zips: []Self,
     dest_dir: []const u8,
 
@@ -210,9 +213,12 @@ const ParallelExtractor = struct {
         entry_index: usize,
         entry_name: []const u8,
     ) void {
+        if (self.errored.load(.seq_cst) > 0) {
+            return;
+        }
         var zip = self.zips[id];
         return zip.extractIndexToDir(entry_index, entry_name, self.dest_dir) catch |err| {
-            // TODO: XXX: Need to actually fail on failure and not just log.
+            self.errored.store(@intFromError(err), .seq_cst);
             log.err(
                 "Failed to extract zip entry {s} from {s}: {}",
                 .{ entry_name, zip.path, err },
@@ -261,10 +267,15 @@ pub fn parallelExtract(
         try zips.append(try Self.init(self.path, .{ .mode = .read_only }));
     }
 
-    var extractor: ParallelExtractor = .{ .zips = zips.items, .dest_dir = dest_dir_path };
+    var worker_err = std.atomic.Value(ErrInt).init(0);
+    var extractor: ParallelExtractor = .{ .errored = &worker_err, .zips = zips.items, .dest_dir = dest_dir_path };
 
     var wg = std.Thread.WaitGroup{};
     for (0..@intCast(self.num_entries)) |zip_idx| {
+        const err_int = worker_err.load(.seq_cst);
+        if (err_int > 0) {
+            return @errorFromInt(err_int);
+        }
         const entry_name = std.mem.span(c.zip_get_name(
             self.handle,
             @intCast(zip_idx),
@@ -282,4 +293,8 @@ pub fn parallelExtract(
         }
     }
     pool.waitAndWork(&wg);
+    const err_int = worker_err.load(.seq_cst);
+    if (err_int > 0) {
+        return @errorFromInt(err_int);
+    }
 }

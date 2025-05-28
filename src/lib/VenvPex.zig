@@ -184,14 +184,21 @@ pub fn install(
     );
     log.info("VenvPex unzip took {d:.3}ms", .{timer.read() / 1_000_000});
 
+    const ErrInt = std.meta.Int(.unsigned, @bitSizeOf(anyerror));
+    var worker_err = std.atomic.Value(ErrInt).init(0);
+
     const Installer = struct {
         fn installSafe(
             alloc: std.mem.Allocator,
+            errored: *std.atomic.Value(ErrInt),
             wp: []const u8,
             virtualenv: *const Virtualenv,
             site_packages_dir_path: []const u8,
             entry_name: []const u8,
         ) void {
+            if (errored.load(.seq_cst) > 0){
+                return;
+            }
             return installed_wheel.installInVenv(
                 alloc,
                 wp,
@@ -199,6 +206,7 @@ pub fn install(
                 site_packages_dir_path,
                 entry_name,
             ) catch |err| {
+                errored.store(@intFromError(err), .seq_cst);
                 log.err(
                     "[{d}] Failed to install wheel {s}: {}",
                     .{ std.Thread.getCurrentId(), entry_name, err },
@@ -240,13 +248,21 @@ pub fn install(
     var alloc: std.heap.ThreadSafeAllocator = .{ .child_allocator = allocator };
     var wg: std.Thread.WaitGroup = .{};
     for (deps.items) |dep| {
+        const err_int = worker_err.load(.seq_cst);
+        if (err_int > 0) {
+            return @errorFromInt(err_int);
+        }
         pool.spawnWg(
             &wg,
             Installer.installSafe,
-            .{ alloc.allocator(), work_path, &venv, site_packages_path, dep },
+            .{ alloc.allocator(), &worker_err, work_path, &venv, site_packages_path, dep },
         );
     }
     pool.waitAndWork(&wg);
+    const err_int = worker_err.load(.seq_cst);
+    if (err_int > 0) {
+        return @errorFromInt(err_int);
+    }
     log.info("VenvPex unzip and spread took {d:.3}ms", .{timer.read() / 1_000_000});
 
     try site_packages_dir.deleteTree(".deps");
