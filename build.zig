@@ -135,7 +135,7 @@ pub fn build(b: *std.Build) !void {
         const zip_exe = b.addExecutable(.{
             .name = "zipopen",
             .root_module = b.addModule("zipopen", .{
-                .root_source_file = b.path("src/zip/main.zig"),
+                .root_source_file = b.path("bench/zipopen.zig"),
                 .target = rt,
                 .optimize = optimize,
             }),
