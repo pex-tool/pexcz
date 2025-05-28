@@ -600,4 +600,4 @@ if __name__ == "__main__":
                 python_args.extend(orig_args[1:index])
                 break
 
-    boot(entry_point, args=sys.argv[2:])
+    boot(entry_point, args=sys.argv[1:])

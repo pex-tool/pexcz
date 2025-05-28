@@ -73,8 +73,10 @@ pub fn bootPexZPosix(
 
     try exec_argv.append(boot_spec.python_exe);
     try exec_argv.append(boot_spec.main_py);
-    for (argv[2..]) |arg| {
-        try exec_argv.append(arg);
+    if (argv.len > 2) {
+        for (argv[2..]) |arg| {
+            try exec_argv.append(arg);
+        }
     }
     try exec_argv.append(null);
 

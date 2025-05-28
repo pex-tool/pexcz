@@ -196,7 +196,7 @@ pub fn install(
             site_packages_dir_path: []const u8,
             entry_name: []const u8,
         ) void {
-            if (errored.load(.seq_cst) > 0){
+            if (errored.load(.seq_cst) > 0) {
                 return;
             }
             return installed_wheel.installInVenv(
