@@ -23,7 +23,7 @@ pub const OpenOptions = struct {
         truncate = c.ZIP_CREATE | c.ZIP_TRUNCATE,
     };
 
-    mode: Mode = .read_only,
+    mode: ?Mode = .read_only,
 };
 
 path: [*c]const u8,
@@ -35,7 +35,11 @@ const Self = @This();
 pub fn init(filename: [*c]const u8, options: Self.OpenOptions) !Self {
     var zip_errno: c_int = undefined;
     var zip_error: c.zip_error_t = undefined;
-    const handle = c.zip_open(filename, @intFromEnum(options.mode), &zip_errno) orelse {
+    const handle = c.zip_open(
+        filename,
+        if (options.mode) |mode| @intFromEnum(mode) else 0,
+        &zip_errno,
+    ) orelse {
         c.zip_error_init_with_code(&zip_error, zip_errno);
         defer c.zip_error_fini(&zip_error);
         log.err(
