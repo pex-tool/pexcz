@@ -216,9 +216,6 @@ pub const Interpreter = struct {
 
     // TODO: XXX: See if we can just keep tags as []const u8 opaque strings for set membership
     //  tests.
-    // TODO: XXX: This will likely need to be a RankedTags struct (with a custom jsonParse method)
-    //  that contains the tags as a string map with usize rank values so we can both test set
-    //  membership and retrieve rank in one operation.
     supported_tags: []const Tag,
 
     const Self = @This();
