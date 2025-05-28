@@ -229,6 +229,16 @@ fn inject(
     _ = c.zip_register_progress_callback_with_state(czex.handle, precision, record_progress, null, &progress_ctx);
     czex.deinit();
 
+    var czex_file = try std.fs.cwd().openFileZ(czex.path, .{});
+    defer czex_file.close();
+
+    const metadata = try czex_file.metadata();
+    var permissions = metadata.permissions();
+    permissions.inner.unixSet(.user, .{ .execute = true });
+    permissions.inner.unixSet(.group, .{ .execute = true });
+    permissions.inner.unixSet(.other, .{ .execute = true });
+    try czex_file.setPermissions(permissions);
+
     std.debug.print("Injected pexcz runtime for {s} in {s}\n", .{ pex_path, czex.path });
     std.debug.print("TODO: XXX: actually inject a pexcz bootstrap in: {s}\n", .{czex_path});
     _ = pexcz_python_pkg_root;
