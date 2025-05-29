@@ -4,6 +4,7 @@ pub const BinPath = enum { false, append, prepend };
 
 pub const InheritPath = enum { false, prefer, fallback };
 
+build_properties: std.json.ArrayHashMap([]const u8),
 pex_hash: []const u8,
 distributions: std.json.ArrayHashMap([]const u8),
 requirements: []const []const u8,

@@ -142,17 +142,17 @@ fn setupBoot(
     var zip_file = try Zip.init(pex_path, .{});
     defer zip_file.deinit();
 
-    const data = zip_file.extractToSlice(allocator, "PEX-INFO") catch |err| {
+    const pex_info_data = zip_file.extractToSlice(allocator, "PEX-INFO") catch |err| {
         std.debug.print("Failed to read PEX-INFO from {s}: {}\n", .{ pex_path, err });
         return error.PexInfoUnreadable;
     } orelse {
         std.debug.print("Failed to find PEX-INFO in {s}.\n", .{pex_path});
         return error.PexInfoNotFound;
     };
-    defer allocator.free(data);
+    defer allocator.free(pex_info_data);
     log.info("Extract PEX-INFO took {d:.3}µs.", .{timer.lap() / 1_000});
 
-    const pex_info = try PexInfo.parse(allocator, data);
+    const pex_info = try PexInfo.parse(allocator, pex_info_data);
     defer pex_info.deinit();
     log.info("Parse PEX-INFO took {d:.3}µs.", .{timer.lap() / 1_000});
 
@@ -171,7 +171,7 @@ fn setupBoot(
     var venv_cache_dir = try pexcz_root.join(&.{ "venvs", "0", pex_hash });
     defer venv_cache_dir.deinit(.{});
 
-    const venv_pex: VenvPex = try .init(pex_path, pex_info.value);
+    const venv_pex: VenvPex = try .init(pex_path, pex_info.value, pex_info_data);
 
     const Fn = struct {
         allocator: std.mem.Allocator,
@@ -212,7 +212,7 @@ fn setupBoot(
     );
     const main_py = try std.fs.path.joinZ(
         allocator,
-        &.{ venv_cache_dir.path, VenvPex.main_py_relpath },
+        &.{ venv_cache_dir.path, "__main__.py" },
     );
     return .{ .allocator = allocator, .python_exe = python_exe, .main_py = main_py };
 }
