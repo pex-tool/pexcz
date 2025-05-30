@@ -117,6 +117,11 @@ pub fn create(
     dest_dir: std.fs.Dir,
     include_pip: bool,
 ) !Self {
+    // TODO: XXX: Use embedded VIRTUALENV_PY to create the venv for Python 2.
+    if (interpreter.version.major < 3) {
+        return error.TodoImplementPy2VenvCreate;
+    }
+
     const home_bin_dir = std.fs.path.dirname(interpreter.realpath) orelse {
         return error.UnparentedPythonError;
     };
