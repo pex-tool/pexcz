@@ -60,12 +60,12 @@ pub fn bootPexZPosix(
             break :res @ptrCast(envp.ptr);
         }
     };
-    if (timer.*) |*elapsed| log.info("Create envp took {d:.3}µs", .{elapsed.read() / 1_000});
+    if (timer.*) |*elapsed| log.debug("Create envp took {d:.3}µs", .{elapsed.read() / 1_000});
 
     const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
     defer boot_spec.deinit();
     if (timer.*) |*elapsed| {
-        log.info("Calculate boot spec took {d:.3}µs", .{elapsed.read() / 1_000});
+        log.debug("Calculate boot spec took {d:.3}µs", .{elapsed.read() / 1_000});
     }
 
     var exec_argv = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, 2 + argv.len);
@@ -80,8 +80,8 @@ pub fn bootPexZPosix(
     }
     try exec_argv.append(null);
 
-    log.info("Bytes used: {d}", .{alloc.bytesUsed()});
-    if (timer.*) |*elpased| log.info(
+    log.debug("Bytes used: {d}", .{alloc.bytesUsed()});
+    if (timer.*) |*elpased| log.debug(
         "C boot({s}, {s}, ...) pre-exec took {d:.3}µs",
         .{ python_exe_path, pex_path, elpased.read() / 1_000 },
     );
@@ -133,7 +133,7 @@ fn setupBoot(
 
     const interpreter = try Interpreter.identify(allocator, std.mem.span(python_exe_path));
     defer interpreter.deinit();
-    log.info("Identify interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
+    log.debug("Identify interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
 
     var temp_dirs = fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
@@ -143,18 +143,18 @@ fn setupBoot(
     defer zip_file.deinit();
 
     const pex_info_data = zip_file.extractToSlice(allocator, "PEX-INFO") catch |err| {
-        std.debug.print("Failed to read PEX-INFO from {s}: {}\n", .{ pex_path, err });
+        log.err("Failed to read PEX-INFO from {s}: {}", .{ pex_path, err });
         return error.PexInfoUnreadable;
     } orelse {
-        std.debug.print("Failed to find PEX-INFO in {s}.\n", .{pex_path});
+        log.err("Failed to find PEX-INFO in {s}.", .{pex_path});
         return error.PexInfoNotFound;
     };
     defer allocator.free(pex_info_data);
-    log.info("Extract PEX-INFO took {d:.3}µs.", .{timer.lap() / 1_000});
+    log.debug("Extract PEX-INFO took {d:.3}µs.", .{timer.lap() / 1_000});
 
     const pex_info = try PexInfo.parse(allocator, pex_info_data);
     defer pex_info.deinit();
-    log.info("Parse PEX-INFO took {d:.3}µs.", .{timer.lap() / 1_000});
+    log.debug("Parse PEX-INFO took {d:.3}µs.", .{timer.lap() / 1_000});
 
     const encoder = std.fs.base64_encoder;
     const pex_hash_bytes = @as(
@@ -182,7 +182,7 @@ fn setupBoot(
         const Self = @This();
 
         fn install(work_path: []const u8, work_dir: std.fs.Dir, self: Self) !void {
-            log.info("Installing {s} to {s}.\n", .{ self.venv_pex.pex_path, work_path });
+            log.debug("Installing {s} to {s}.\n", .{ self.venv_pex.pex_path, work_path });
             const venv = try self.venv_pex.install(
                 self.allocator,
                 self.dest_path,

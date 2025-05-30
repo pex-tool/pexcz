@@ -4,6 +4,8 @@ const known_folders = @import("known-folders");
 
 const fs = @import("fs.zig");
 
+const log = std.log.scoped(.cache);
+
 pub const CacheDir = struct {
     const Lock = struct {
         file: std.fs.File,
@@ -85,9 +87,9 @@ pub const CacheDir = struct {
         var work_dir = try std.fs.cwd().makeOpenPath(work_path, .{});
         defer work_dir.close();
         errdefer work_dir.deleteTree(work_path) catch |err| {
-            std.debug.print(
+            log.warn(
                 "Failed to clean up temporary work dir {s} on failed attempt to atomically " ++
-                    "create dir {s}: {}\n",
+                    "create dir {s}: {}",
                 .{ work_path, self.path, err },
             );
         };
@@ -203,7 +205,7 @@ pub fn root(
             break :res cache_path;
         } else {
             const tmp_cache = try temp_dirs.mkdtemp(true);
-            std.debug.print(
+            log.warn(
                 \\The user cache directory could not be determined, using a temporary cache dir at:
                 \\  {s}
                 \\

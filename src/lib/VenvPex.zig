@@ -81,7 +81,7 @@ fn selectWheelsToInstall(
     zip: *Zip,
 ) !?WheelsToInstall {
     var timer = try std.time.Timer.start();
-    defer log.info(
+    defer log.debug(
         "VenvPex.selectWheelsToInstall({s}, ...) took {d:.3}ms",
         .{ self.pex_path, timer.read() / 1_000_000 },
     );
@@ -105,7 +105,7 @@ fn selectWheelsToInstall(
 
         for (wheel_info.tags) |tag| {
             if (ranked_tags.rank(tag)) |rank| {
-                log.info(
+                log.debug(
                     "{d} {s} {s} (raw: {s}) <- {s} matches {s}",
                     .{
                         rank,
@@ -178,7 +178,7 @@ fn installWheels(
         WheelsToInstall.shouldExtract,
         .{},
     );
-    log.info("VenvPex unzip took {d:.3}ms", .{timer.read() / 1_000_000});
+    log.debug("VenvPex unzip took {d:.3}ms", .{timer.read() / 1_000_000});
 
     const ErrInt = std.meta.Int(.unsigned, @bitSizeOf(anyerror));
     var worker_err = std.atomic.Value(ErrInt).init(0);
@@ -259,7 +259,7 @@ fn installWheels(
     if (err_int > 0) {
         return @errorFromInt(err_int);
     }
-    log.info("VenvPex unzip and spread took {d:.3}ms", .{timer.read() / 1_000_000});
+    log.debug("VenvPex unzip and spread took {d:.3}ms", .{timer.read() / 1_000_000});
 
     try site_packages_dir.deleteTree(".deps");
 
@@ -596,7 +596,7 @@ pub fn install(
     include_pip: bool,
 ) !Virtualenv {
     var timer = try std.time.Timer.start();
-    defer log.info(
+    defer log.debug(
         "VenvPex.install({s}, ...) took {d:.3}ms",
         .{ self.pex_path, timer.read() / 1_000_000 },
     );
@@ -624,12 +624,12 @@ pub fn install(
 
     if (wheels_to_install) |wheels| {
         try installWheels(allocator, &zip, &venv, work_path, work_dir, dest_path, &wheels);
-        log.info(
+        log.debug(
             "VenvPex unzip and spread and script re-write took {d:.3}ms",
             .{timer.read() / 1_000_000},
         );
     } else {
-        log.info("No wheels to install.", .{});
+        log.debug("No wheels to install.", .{});
     }
 
     try self.writeRepl(allocator, work_dir, &venv, dest_path, &wheels_to_install);

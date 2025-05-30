@@ -324,24 +324,28 @@ US = TimeUnit("µs", 1000 * 1000)
 def timed(unit):
     # type: (TimeUnit) -> Callable[[Callable], Callable]
     def wrapper(func):
-        @functools.wraps(func)
-        def wrapped(*args, **kwargs):
-            start = time.time()
-            try:
-                return func(*args, **kwargs)
-            finally:
-                print(
-                    "{func}(*{args!r}, **{kwargs!r}) took {elapsed:.4}{unit}".format(
-                        func=func.__name__,
-                        args=args,
-                        kwargs=kwargs,
-                        elapsed=unit.elapsed(start),
-                        unit=unit,
-                    ),
-                    file=sys.stderr,
-                )
+        if _PEX_VERBOSE:
 
-        return wrapped
+            @functools.wraps(func)
+            def wrapped(*args, **kwargs):
+                start = time.time()
+                try:
+                    return func(*args, **kwargs)
+                finally:
+                    print(
+                        "{func}(*{args!r}, **{kwargs!r}) took {elapsed:.4}{unit}".format(
+                            func=func.__name__,
+                            args=args,
+                            kwargs=kwargs,
+                            elapsed=unit.elapsed(start),
+                            unit=unit,
+                        ),
+                        file=sys.stderr,
+                    )
+
+            return wrapped
+        else:
+            return func
 
     return wrapper
 

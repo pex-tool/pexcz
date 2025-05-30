@@ -11,6 +11,8 @@ pub const Marker = @import("Marker.zig");
 pub const RankedTags = @import("RankedTags.zig");
 pub const Tag = @import("Tag.zig");
 
+const log = std.log.scoped(.interpreter);
+
 const Version = struct {
     major: u8,
     minor: u8,
@@ -248,16 +250,10 @@ pub const Interpreter = struct {
 
             fn work(work_path: []const u8, work_dir: std.fs.Dir, context: @This()) !void {
                 var timer = try std.time.Timer.start();
-                defer std.debug.print(
-                    "interpreter identification took {d:.3}µs\n",
-                    .{timer.read() / 1_000},
-                );
+                defer log.debug("interpreter identification took {d:.3}µs", .{timer.read() / 1_000});
 
                 const linux_info = res: {
-                    defer std.debug.print(
-                        "Linux libc detection took {d:.3}µs\n",
-                        .{timer.lap() / 1_000},
-                    );
+                    defer log.debug("Linux libc detection took {d:.3}µs", .{timer.lap() / 1_000});
                     const linux = try Linux.detect(context.allocator, context.python);
                     break :res linux;
                 };
@@ -279,8 +275,8 @@ pub const Interpreter = struct {
                         .{},
                     );
                     argc = argv.len;
-                    std.debug.print(
-                        "Detected Linux for {s}: \n{s}\n",
+                    log.debug(
+                        "Detected Linux for {s}:\n{s}",
                         .{ context.python, argv[argv.len - 1] },
                     );
                 }
@@ -447,7 +443,7 @@ pub const InterpreterIter = struct {
                                         &.{ entry, dir_ent.name },
                                     );
                                     errdefer allocator.free(candidate);
-                                    std.debug.print("... candidate: {s}\n", .{candidate});
+                                    log.debug("... candidate: {s}", .{candidate});
                                     try candidates.append(candidate);
                                 } else |_| {}
                             }
@@ -457,7 +453,7 @@ pub const InterpreterIter = struct {
                 }
             }
         }
-        std.debug.print(">>> Found {d} candidates\n", .{candidates.items.len});
+        log.debug("Found {d} candidates.", .{candidates.items.len});
         return .{ .allocator = allocator, .candidates = try candidates.toOwnedSlice() };
     }
 
@@ -468,7 +464,7 @@ pub const InterpreterIter = struct {
         defer self.index += 1;
         const candidate = self.candidates[self.index];
         return Interpreter.identify(self.allocator, candidate) catch |err| {
-            std.debug.print(">>> Candidate {s} failed identification: {}\n", .{ candidate, err });
+            log.debug("Candidate {s} failed identification: {}", .{ candidate, err });
             // TODO: XXX: Avoid recursion here - flatten with a loop.
             self.index += 1;
             return self.next();
@@ -496,8 +492,8 @@ test "compare with packaging" {
         defer interpreter.deinit();
 
         if (seen.contains(interpreter.value.realpath)) {
-            std.debug.print(
-                "Skipping {s}, same as already tested {s}.\n",
+            log.debug(
+                "Skipping {s}, same as already tested {s}.",
                 .{ interpreter.value.path, interpreter.value.realpath },
             );
             continue;
@@ -552,7 +548,7 @@ test "compare with packaging" {
 
         const CheckInstall = struct {
             pub fn printError() void {
-                std.debug.print("Failed to install packaging\n", .{});
+                std.debug.print("Failed to install packaging.\n", .{});
             }
         };
         try subprocess.run(
@@ -564,7 +560,7 @@ test "compare with packaging" {
 
         const CheckQuery = struct {
             pub fn printError() void {
-                std.debug.print("Failed to query packaging for sys tags\n", .{});
+                std.debug.print("Failed to query packaging for sys tags.\n", .{});
             }
         };
 

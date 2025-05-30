@@ -3,6 +3,8 @@ const std = @import("std");
 
 const getenv = @import("os.zig").getenv;
 
+const log = std.log.scoped(.fs);
+
 const TempDirRoot = struct {
     path: []const u8,
     allocator: ?std.mem.Allocator = null,
@@ -97,7 +99,7 @@ pub const TempDirs = struct {
             const dir_path = try td.join(self.allocator, tmp_name);
             errdefer self.allocator.free(dir_path);
             std.fs.cwd().makeDir(dir_path) catch |err| {
-                std.debug.print(
+                log.debug(
                     "[attempt {d} of 5] Failed to create temp dir {s}: {}\n",
                     .{ attempt + 1, dir_path, err },
                 );
@@ -112,7 +114,7 @@ pub const TempDirs = struct {
     pub fn deinit(self: Self) void {
         for (self.temp_dirs.items) |temp_dir| {
             temp_dir.deinit(self.allocator) catch |err| {
-                std.debug.print("Failed to cleanup temp dir {}: {}\n", .{ temp_dir, err });
+                log.warn("Failed to cleanup temp dir {}: {}\n", .{ temp_dir, err });
                 continue;
             };
         }
