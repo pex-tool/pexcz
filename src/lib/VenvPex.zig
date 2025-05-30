@@ -167,7 +167,7 @@ fn installWheels(
     var timer = try std.time.Timer.start();
     const site_packages_path = try std.fs.path.join(
         allocator,
-        &.{ work_path, venv.site_packages_relpath },
+        &.{ work_path, venv.site_packages_relpath.value },
     );
     defer allocator.free(site_packages_path);
 
@@ -211,7 +211,7 @@ fn installWheels(
         }
     };
 
-    var site_packages_dir = try work_dir.makeOpenPath(venv.site_packages_relpath, .{});
+    var site_packages_dir = try work_dir.makeOpenPath(venv.site_packages_relpath.value, .{});
     defer site_packages_dir.close();
 
     var deps_dir = try site_packages_dir.openDir(".deps", .{ .iterate = true });

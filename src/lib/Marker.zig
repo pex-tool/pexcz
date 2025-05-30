@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const Env = struct {
     os_name: []const u8,
     sys_platform: []const u8,
@@ -10,14 +12,8 @@ pub const Env = struct {
     python_full_version: []const u8,
     implementation_name: []const u8,
     implementation_version: []const u8,
+
+    pub fn is_pypy(self: @This()) bool {
+        return std.mem.eql(u8, "PyPy", self.platform_python_implementation);
+    }
 };
-
-const Self = @This();
-
-pub fn parse(_: []const u8) !Self {
-    return error.NotImplemented;
-}
-
-pub fn evaluate(_: Env) bool {
-    return false;
-}

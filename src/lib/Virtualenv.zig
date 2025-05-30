@@ -6,10 +6,21 @@ const subprocess = @import("subprocess.zig");
 
 pub const VIRTUALENV_PY = @embedFile("virtualenv.py");
 
+const SitePackagesRelpath = struct {
+    value: []const u8,
+    owned: bool,
+
+    fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        if (self.owned) {
+            allocator.free(self.value);
+        }
+    }
+};
+
 allocator: std.mem.Allocator,
 dir: std.fs.Dir,
 interpreter_relpath: []const u8,
-site_packages_relpath: []const u8,
+site_packages_relpath: SitePackagesRelpath,
 
 const Self = @This();
 
@@ -26,17 +37,33 @@ fn createInterpreterRelpath(allocator: std.mem.Allocator) ![]const u8 {
     );
 }
 
-fn createSitePackagesRelpath(allocator: std.mem.Allocator, interpreter: Interpreter) ![]const u8 {
+fn createSitePackagesRelpath(
+    allocator: std.mem.Allocator,
+    interpreter: Interpreter,
+) !SitePackagesRelpath {
     if (native_os == .windows) {
         return try std.fs.path.join(allocator, &.{ "Lib", "site-packages" });
     }
     const python_version = try std.fmt.allocPrint(
         allocator,
-        "python{d}.{d}",
-        .{ interpreter.version.major, interpreter.version.minor },
+        "{s}{d}.{d}",
+        .{
+            if (interpreter.marker_env.is_pypy()) "pypy" else "python",
+            interpreter.version.major,
+            interpreter.version.minor,
+        },
     );
     defer allocator.free(python_version);
-    return try std.fs.path.join(allocator, &.{ "lib", python_version, "site-packages" });
+    if (interpreter.marker_env.is_pypy() and
+        (interpreter.version.major == 2 or interpreter.version.minor < 8))
+    {
+        return .{ .value = "site-packages", .owned = false };
+    } else {
+        return .{
+            .value = try std.fs.path.join(allocator, &.{ "lib", python_version, "site-packages" }),
+            .owned = true,
+        };
+    }
 }
 
 pub fn load(allocator: std.mem.Allocator, venv_dir: std.fs.Dir) !Self {
@@ -50,8 +77,8 @@ pub fn load(allocator: std.mem.Allocator, venv_dir: std.fs.Dir) !Self {
     var interpreter_relpath: ?[]const u8 = null;
     errdefer if (interpreter_relpath) |path| allocator.free(path);
 
-    var site_packages_relpath: ?[]const u8 = null;
-    errdefer if (site_packages_relpath) |path| allocator.free(path);
+    var site_packages_relpath: ?SitePackagesRelpath = null;
+    errdefer if (site_packages_relpath) |path| path.deinit(allocator);
 
     var buf: [std.fs.max_path_bytes * 2]u8 = undefined;
     while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
@@ -82,7 +109,7 @@ pub fn load(allocator: std.mem.Allocator, venv_dir: std.fs.Dir) !Self {
                 "\r",
             );
             try venv_dir.access(path, .{});
-            site_packages_relpath = try allocator.dupe(u8, path);
+            site_packages_relpath = .{ .value = try allocator.dupe(u8, path), .owned = true };
         }
     }
     if (!found_home) {
@@ -126,7 +153,7 @@ pub fn create(
     errdefer allocator.free(venv_python_relpath);
 
     const site_packages_relpath = try Self.createSitePackagesRelpath(allocator, interpreter);
-    errdefer allocator.free(site_packages_relpath);
+    errdefer site_packages_relpath.deinit(allocator);
 
     if (interpreter.version.major < 3) {
         var virtualenv = try dest_dir.createFile("virtualenv.py", .{});
@@ -166,7 +193,7 @@ pub fn create(
             try dest_dir.symLink(interpreter.realpath, venv_python_relpath, .{});
         }
 
-        try dest_dir.makePath(site_packages_relpath);
+        try dest_dir.makePath(site_packages_relpath.value);
     }
 
     const home_bin_dir = std.fs.path.dirname(interpreter.realpath) orelse {
@@ -188,7 +215,7 @@ pub fn create(
             home_bin_dir,
             if (options.include_system_site_packages) "true" else "false",
             venv_python_relpath,
-            site_packages_relpath,
+            site_packages_relpath.value,
         },
     );
     defer allocator.free(pyvenv_cfg_contents);
@@ -226,5 +253,5 @@ pub fn create(
 
 pub fn deinit(self: Self) void {
     self.allocator.free(self.interpreter_relpath);
-    self.allocator.free(self.site_packages_relpath);
+    self.site_packages_relpath.deinit(self.allocator);
 }

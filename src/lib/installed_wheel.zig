@@ -39,7 +39,7 @@ pub fn installInVenv(
                 alloc,
                 &.{
                     wp,
-                    virtualenv.site_packages_relpath,
+                    virtualenv.site_packages_relpath.value,
                     ".deps",
                     entry_name,
                     ".prefix",
@@ -77,7 +77,7 @@ pub fn installInVenv(
                     alloc,
                     &.{
                         wp,
-                        virtualenv.site_packages_relpath,
+                        virtualenv.site_packages_relpath.value,
                         ".deps",
                         entry_name,
                         wheel_entry.name,
