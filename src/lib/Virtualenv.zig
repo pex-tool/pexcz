@@ -142,7 +142,6 @@ pub fn create(
                 std.debug.print("Failed to create venv.\n", .{});
             }
         };
-        // python virtualenv.py --no-download --no-pip --no-setuptools --no-wheel DEST_DIR
         try subprocess.run(
             allocator,
             &.{
