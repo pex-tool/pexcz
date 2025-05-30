@@ -19,8 +19,6 @@ const supported_targets: []const std.Target.Query = &.{
     .{ .cpu_arch = .x86_64, .os_tag = .windows },
 };
 
-const VIRTUALENV_PY_RESOURCE_BASE_NAME = "virtualenv_16.7.12_py";
-
 pub fn build(b: *std.Build) !void {
     const Targets = enum {
         All,
@@ -49,7 +47,8 @@ pub fn build(b: *std.Build) !void {
     });
     const tool_step = b.addRunArtifact(tool);
     // TODO(John Sirois): Plumb --sha arg from a build option.
-    const virtualenv_py_resource = tool_step.addOutputFileArg(VIRTUALENV_PY_RESOURCE_BASE_NAME);
+    const virtualenv_py_resource = tool_step.addOutputFileArg("virtualenv.py");
+
     const known_folders = b.dependency("known_folders", .{}).module("known-folders");
 
     var target_dirs = try std.ArrayList([]const u8).initCapacity(b.allocator, target_queries.len);
@@ -154,6 +153,10 @@ pub fn build(b: *std.Build) !void {
         .target = cur_tgt,
         .optimize = optimize,
     });
+    lib_unit_tests.root_module.addAnonymousImport(
+        "virtualenv.py",
+        .{ .root_source_file = virtualenv_py_resource },
+    );
     lib_unit_tests.root_module.addImport("known-folders", known_folders);
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 

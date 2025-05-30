@@ -2,7 +2,7 @@
 # Copyright 2024 Pex project contributors.
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function
 
 import os
 import re
@@ -192,7 +192,7 @@ def _create_pex_repl(
         else:
             print("Running from --venv PEX file: {pex}".format(pex=os.environ.get("PEX", seed_pex)))
             if activation_details:
-                print(activation_details)
+                print(activation_details, end="")
 
     return repl_loop(
         banner="\n".join(

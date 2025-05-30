@@ -122,33 +122,57 @@ pub fn create(
     dest_dir: std.fs.Dir,
     options: CreateOptions,
 ) !Self {
-    // TODO: XXX: Use embedded VIRTUALENV_PY to create the venv for Python 2.
+    const venv_python_relpath = try Self.createInterpreterRelpath(allocator);
+    errdefer allocator.free(venv_python_relpath);
+
+    const site_packages_relpath = try Self.createSitePackagesRelpath(allocator, interpreter);
+    errdefer allocator.free(site_packages_relpath);
+
     if (interpreter.version.major < 3) {
-        return error.TodoImplementPy2VenvCreate;
+        var virtualenv = try dest_dir.createFile("virtualenv.py", .{});
+        errdefer virtualenv.close();
+
+        var virtualenv_fp = std.io.bufferedWriter(virtualenv.writer());
+        try virtualenv_fp.writer().writeAll(VIRTUALENV_PY);
+        try virtualenv_fp.flush();
+        virtualenv.close();
+
+        const CheckCall = struct {
+            pub fn printError() void {
+                std.debug.print("Failed to create venv.\n", .{});
+            }
+        };
+        // python virtualenv.py --no-download --no-pip --no-setuptools --no-wheel DEST_DIR
+        try subprocess.run(
+            allocator,
+            &.{
+                interpreter.path,
+                "virtualenv.py",
+                "--no-download",
+                "--no-pip",
+                "--no-setuptools",
+                "--no-wheel",
+                ".",
+            },
+            subprocess.CheckCall(CheckCall.printError),
+            .{ .extra_child_run_args = .{ .cwd_dir = dest_dir } },
+        );
+    } else {
+        if (std.fs.path.dirname(venv_python_relpath)) |venv_bin_dir| {
+            try dest_dir.makePath(venv_bin_dir);
+        }
+        if (native_os == .windows) {
+            try dest_dir.copyFile(interpreter.realpath, dest_dir, venv_python_relpath, .{});
+        } else {
+            try dest_dir.symLink(interpreter.realpath, venv_python_relpath, .{});
+        }
+
+        try dest_dir.makePath(site_packages_relpath);
     }
 
     const home_bin_dir = std.fs.path.dirname(interpreter.realpath) orelse {
         return error.UnparentedPythonError;
     };
-
-    const venv_python_relpath = try Self.createInterpreterRelpath(allocator);
-    errdefer allocator.free(venv_python_relpath);
-
-    if (std.fs.path.dirname(venv_python_relpath)) |venv_bin_dir| {
-        try dest_dir.makePath(venv_bin_dir);
-    }
-    if (native_os == .windows) {
-        try dest_dir.copyFile(interpreter.realpath, dest_dir, venv_python_relpath, .{});
-    } else {
-        try dest_dir.symLink(interpreter.realpath, venv_python_relpath, .{});
-    }
-
-    const site_packages_relpath = try Self.createSitePackagesRelpath(
-        allocator,
-        interpreter,
-    );
-    errdefer allocator.free(site_packages_relpath);
-    try dest_dir.makePath(site_packages_relpath);
 
     const pyvenv_cfg = try dest_dir.createFile("pyvenv.cfg", .{});
     defer pyvenv_cfg.close();
@@ -179,9 +203,14 @@ pub fn create(
             }
         };
         // TODO: XXX: If no ensurepip module, dowload a pip .pyz and install that way.
+        const args: []const []const u8 = if (interpreter.version.major < 3) &.{
+            venv_python_relpath,
+            "-m",
+            "ensurepip",
+        } else &.{ venv_python_relpath, "-m", "ensurepip", "--default-pip" };
         try subprocess.run(
             allocator,
-            &.{ venv_python_relpath, "-m", "ensurepip", "--default-pip" },
+            args,
             subprocess.CheckCall(CheckCall.printError),
             .{
                 .extra_child_run_args = .{ .cwd_dir = dest_dir },
