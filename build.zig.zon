@@ -12,15 +12,15 @@
             .hash = "known_folders-0.0.0-Fy-PJtLDAADGDOwYwMkVydMSTp_aN-nfjCZw6qPQ2ECL",
         },
         .libzip = .{
-            .url = "https://github.com/nih-at/libzip/archive/refs/tags/v1.11.4.tar.gz",
-            .hash = "N-V-__8AAIGWXwDb3q2kABh4z-r1aO2vLvZnKmf5aLSaRxk-",
+            .url = "git+https://github.com/nih-at/libzip#6f8a0cdd24a0dc6cce9dac4a7679da784ab124ea",
+            .hash = "N-V-__8AAAbuXwAhfcgJ1l6sOGbczRZijBbchrr34QlkpykE",
         },
         .zlib = .{
-            .url = "https://github.com/allyourcodebase/zlib/archive/refs/tags/1.3.1.tar.gz",
+            .url = "git+https://github.com/allyourcodebase/zlib#0918e87b7629b9c6a50a08edd0ce30d849758faf",
             .hash = "zlib-1.3.1-AAAAACEMAAA0qyoSrfgBb_p25ItL4yRf_TBRk-26TYMF",
         },
         .zstd = .{
-            .url = "https://github.com/allyourcodebase/zstd/archive/refs/tags/1.5.7.tar.gz",
+            .url = "git+https://github.com/allyourcodebase/zstd#01327d49cbc56dc24c20a167bb0055d7fc23de84",
             .hash = "zstd-1.5.7-KEItkJ8vAAC5_rRlKmLflYQ-eKXbAIQBWZNmmJtS18q0",
         },
     },
