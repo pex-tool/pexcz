@@ -601,7 +601,13 @@ pub fn install(
         .{ self.pex_path, timer.read() / 1_000_000 },
     );
 
-    const venv = try Virtualenv.create(allocator, interpreter, work_dir, include_pip);
+    const venv = try Virtualenv.create(
+        allocator,
+        interpreter,
+        work_dir,
+        include_pip,
+        self.pex_info.venv_system_site_packages,
+    );
     errdefer venv.deinit();
 
     var zip = try Zip.init(self.pex_path, .{});

@@ -547,6 +547,7 @@ test "compare with packaging" {
             interpreter.value,
             tmpdir.dir,
             true,
+            false,
         );
         defer venv.deinit();
 

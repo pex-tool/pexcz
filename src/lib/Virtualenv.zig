@@ -116,6 +116,7 @@ pub fn create(
     interpreter: Interpreter,
     dest_dir: std.fs.Dir,
     include_pip: bool,
+    include_system_site_packages: bool,
 ) !Self {
     // TODO: XXX: Use embedded VIRTUALENV_PY to create the venv for Python 2.
     if (interpreter.version.major < 3) {
@@ -151,12 +152,17 @@ pub fn create(
     const pyvenv_cfg_contents = try std.fmt.allocPrint(
         allocator,
         \\home = {s}
-        \\include-system-site-packages = false
+        \\include-system-site-packages = {s}
         \\interpreter-relpath = {s}
         \\site-packages-relpath = {s}
         \\
     ,
-        .{ home_bin_dir, venv_python_relpath, site_packages_relpath },
+        .{
+            home_bin_dir,
+            if (include_system_site_packages) "true" else "false",
+            venv_python_relpath,
+            site_packages_relpath,
+        },
     );
     defer allocator.free(pyvenv_cfg_contents);
 
