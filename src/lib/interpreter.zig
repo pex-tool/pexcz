@@ -250,7 +250,10 @@ pub const Interpreter = struct {
 
             fn work(work_path: []const u8, work_dir: std.fs.Dir, context: @This()) !void {
                 var timer = try std.time.Timer.start();
-                defer log.debug("interpreter identification took {d:.3}µs", .{timer.read() / 1_000});
+                defer log.debug(
+                    "interpreter identification took {d:.3}µs",
+                    .{timer.read() / 1_000},
+                );
 
                 const linux_info = res: {
                     defer log.debug("Linux libc detection took {d:.3}µs", .{timer.lap() / 1_000});
@@ -306,7 +309,11 @@ pub const Interpreter = struct {
         defer interpeter_cache_dir.close();
 
         const stat = try interpeter_cache_dir.statFile("info.json");
-        const data = try interpeter_cache_dir.readFileAlloc(allocator, "info.json", @intCast(stat.size));
+        const data = try interpeter_cache_dir.readFileAlloc(
+            allocator,
+            "info.json",
+            @intCast(stat.size),
+        );
         defer allocator.free(data);
 
         return try std.json.parseFromSlice(

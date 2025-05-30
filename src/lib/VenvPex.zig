@@ -263,7 +263,8 @@ fn installWheels(
 
     try site_packages_dir.deleteTree(".deps");
 
-    // TODO: XXX: Unhack script installation - actually use entry_point.txt metadata and deal with Windows.
+    // TODO: XXX: Unhack script installation - actually use entry_point.txt metadata and deal with
+    //  Windows.
     if (native_os != .windows) {
         if (std.fs.path.dirname(venv.interpreter_relpath)) |scripts_dir_path| {
             var scripts_dir = try work_dir.openDir(scripts_dir_path, .{ .iterate = true });
@@ -455,7 +456,9 @@ fn writeRepl(
     , .{
         .ps1 = ">>>",
         .ps2 = "...",
-        .pex_version = self.pex_info.build_properties.map.get("pex_version") orelse "(unknown version)",
+        .pex_version = self.pex_info.build_properties.map.get(
+            "pex_version",
+        ) orelse "(unknown version)",
         .seed_pex = self.pex_path,
         .activation_summary = activation_summary,
         .activation_details = activation_details,
