@@ -382,7 +382,7 @@ pub fn install(
     defer zip.deinit();
 
     const venv = try Virtualenv.create(allocator, interpreter, work_dir, include_pip);
-    defer venv.deinit();
+    errdefer venv.deinit();
 
     const wheels_to_install = try self.selectWheelsToInstall(
         allocator,
