@@ -546,8 +546,7 @@ test "compare with packaging" {
             std.testing.allocator,
             interpreter.value,
             tmpdir.dir,
-            true,
-            false,
+            .{ .include_pip = true },
         );
         defer venv.deinit();
 

@@ -111,12 +111,16 @@ pub fn load(allocator: std.mem.Allocator, venv_dir: std.fs.Dir) !Self {
     };
 }
 
+const CreateOptions = struct {
+    include_pip: bool = false,
+    include_system_site_packages: bool = false,
+};
+
 pub fn create(
     allocator: std.mem.Allocator,
     interpreter: Interpreter,
     dest_dir: std.fs.Dir,
-    include_pip: bool,
-    include_system_site_packages: bool,
+    options: CreateOptions,
 ) !Self {
     // TODO: XXX: Use embedded VIRTUALENV_PY to create the venv for Python 2.
     if (interpreter.version.major < 3) {
@@ -159,7 +163,7 @@ pub fn create(
     ,
         .{
             home_bin_dir,
-            if (include_system_site_packages) "true" else "false",
+            if (options.include_system_site_packages) "true" else "false",
             venv_python_relpath,
             site_packages_relpath,
         },
@@ -168,7 +172,7 @@ pub fn create(
 
     try pyvenv_cfg.writeAll(pyvenv_cfg_contents);
 
-    if (include_pip) {
+    if (options.include_pip) {
         const CheckCall = struct {
             pub fn printError() void {
                 std.debug.print("Failed to install Pip in venv.\n", .{});

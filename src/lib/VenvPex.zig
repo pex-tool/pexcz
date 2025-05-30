@@ -605,8 +605,10 @@ pub fn install(
         allocator,
         interpreter,
         work_dir,
-        include_pip,
-        self.pex_info.venv_system_site_packages,
+        .{
+            .include_pip = include_pip,
+            .include_system_site_packages = self.pex_info.venv_system_site_packages,
+        },
     );
     errdefer venv.deinit();
 
