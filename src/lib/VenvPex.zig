@@ -19,7 +19,7 @@ const Self = @This();
 
 pub fn init(pex_path: [*c]const u8, pex_info: PexInfo, pex_info_data: []const u8) !Self {
     return .{
-        .pex_path = std.mem.span(pex_path),
+        .pex_path = pex_path,
         .pex_info = pex_info,
         .pex_info_data = pex_info_data,
     };
@@ -363,44 +363,116 @@ fn markExecutable(file: std.fs.File) !void {
     try file.setPermissions(permissions);
 }
 
-pub fn install(
+fn writeRepl(
     self: Self,
     allocator: std.mem.Allocator,
-    dest_path: []const u8,
-    work_path: []const u8,
     work_dir: std.fs.Dir,
-    interpreter: Interpreter,
-    include_pip: bool,
-) !Virtualenv {
-    var timer = try std.time.Timer.start();
-    defer log.info(
-        "VenvPex.install({s}, ...) took {d:.3}ms",
-        .{ self.pex_path, timer.read() / 1_000_000 },
-    );
+    venv: *const Virtualenv,
+    dest_path: []const u8,
+    wheels_to_install: *const ?WheelsToInstall,
+) !void {
+    const pex_repl = try work_dir.createFile("pex-repl", .{});
+    errdefer pex_repl.close();
 
-    var zip = try Zip.init(self.pex_path, .{});
-    defer zip.deinit();
+    var pex_repl_fp = std.io.bufferedWriter(pex_repl.writer());
+    var pex_repl_writer = pex_repl_fp.writer();
 
-    const venv = try Virtualenv.create(allocator, interpreter, work_dir, include_pip);
-    errdefer venv.deinit();
+    try pex_repl_writer.writeAll("#!");
+    try pex_repl_writer.writeAll(dest_path);
+    try pex_repl_writer.writeByte(std.fs.path.sep);
+    try pex_repl_writer.writeAll(venv.interpreter_relpath);
+    try pex_repl_writer.writeByte('\n');
+    try pex_repl_writer.writeAll(VENV_PEX_REPL_PY);
 
-    const wheels_to_install = try self.selectWheelsToInstall(
-        allocator,
-        interpreter,
-        &zip,
-    );
-    defer if (wheels_to_install) |wheels| wheels.deinit();
+    const activation_summary, const activation_details = res: {
+        if (wheels_to_install.*) |wheels| {
+            const summary = try std.fmt.allocPrint(
+                allocator,
+                "{d} {s} and {d} activated {s}",
+                .{
+                    self.pex_info.requirements.len,
+                    if (self.pex_info.requirements.len > 1) "requirements" else "requirement",
+                    wheels.entries.len,
+                    if (wheels.entries.len > 1) "distributions" else "distribution",
+                },
+            );
+            errdefer allocator.free(summary);
 
-    if (wheels_to_install) |wheels| {
-        try installWheels(allocator, &zip, &venv, work_path, work_dir, dest_path, &wheels);
-        log.info(
-            "VenvPex unzip and spread and script re-write took {d:.3}ms",
-            .{timer.read() / 1_000_000},
-        );
-    } else {
-        log.info("No wheels to install.", .{});
+            var details = std.ArrayList(u8).init(allocator);
+            errdefer details.deinit();
+
+            var details_writer = details.writer();
+            try details_writer.writeAll("Requirements:\n");
+            for (self.pex_info.requirements) |requirement| {
+                try details_writer.writeAll("  ");
+                try details_writer.writeAll(requirement);
+                try details_writer.writeByte('\n');
+            }
+            try details_writer.writeAll("Activated Distributions:\n");
+            for (wheels.entries) |wheel| {
+                try details_writer.writeAll("  ");
+                try details_writer.writeAll(wheel.name);
+                try details_writer.writeByte('\n');
+            }
+            break :res .{ summary, try details.toOwnedSlice() };
+        } else {
+            break :res .{ "no dependencies", "" };
+        }
+    };
+    defer {
+        if (wheels_to_install.* != null) {
+            allocator.free(activation_summary);
+            allocator.free(activation_details);
+        }
     }
 
+    try std.fmt.format(pex_repl_writer,
+        \\
+        \\
+        \\_PS1 = "{[ps1]s}"
+        \\_PS2 = "{[ps2]s}"
+        \\_PEX_VERSION = "{[pex_version]s}"
+        \\_SEED_PEX = "{[seed_pex]s}"
+        \\_ACTIVATION_SUMMARY = "{[activation_summary]s}"
+        \\_ACTIVATION_DETAILS = """{[activation_details]s}"""
+        \\
+        \\
+        \\if __name__ == "__main__":
+        \\    import os
+        \\
+        \\    _create_pex_repl(
+        \\        ps1=_PS1,
+        \\        ps2=_PS2,
+        \\        pex_version=_PEX_VERSION,
+        \\        pex_info=os.path.join(os.path.dirname(__file__), "PEX-INFO"),
+        \\        seed_pex=_SEED_PEX,
+        \\        activation_summary=_ACTIVATION_SUMMARY,
+        \\        activation_details=_ACTIVATION_DETAILS,
+        \\        history=os.environ.get("PEX_INTERPRETER_HISTORY", "0").lower() in ("1", "true"),
+        \\        history_file=os.environ.get("PEX_INTERPRETER_HISTORY_FILE")
+        \\    )()
+        \\
+    , .{
+        .ps1 = ">>>",
+        .ps2 = "...",
+        .pex_version = self.pex_info.build_properties.map.get("pex_version") orelse "(unknown version)",
+        .seed_pex = self.pex_path,
+        .activation_summary = activation_summary,
+        .activation_details = activation_details,
+    });
+
+    try pex_repl_fp.flush();
+    try markExecutable(pex_repl);
+    pex_repl.close();
+}
+
+fn writeMain(
+    self: Self,
+    allocator: std.mem.Allocator,
+    work_dir: std.fs.Dir,
+    venv: *const Virtualenv,
+    dest_path: []const u8,
+) !void {
     const main_py = try work_dir.createFile("__main__.py", .{});
     errdefer main_py.close();
 
@@ -512,100 +584,48 @@ pub fn install(
         }
         try work_dir.copyFile("__main__.py", work_dir, "pex", .{});
     };
+}
 
-    const pex_repl = try work_dir.createFile("pex-repl", .{});
-    errdefer pex_repl.close();
+pub fn install(
+    self: Self,
+    allocator: std.mem.Allocator,
+    dest_path: []const u8,
+    work_path: []const u8,
+    work_dir: std.fs.Dir,
+    interpreter: Interpreter,
+    include_pip: bool,
+) !Virtualenv {
+    var timer = try std.time.Timer.start();
+    defer log.info(
+        "VenvPex.install({s}, ...) took {d:.3}ms",
+        .{ self.pex_path, timer.read() / 1_000_000 },
+    );
 
-    var pex_repl_fp = std.io.bufferedWriter(pex_repl.writer());
-    var pex_repl_writer = pex_repl_fp.writer();
+    const venv = try Virtualenv.create(allocator, interpreter, work_dir, include_pip);
+    errdefer venv.deinit();
 
-    try pex_repl_writer.writeAll("#!");
-    try pex_repl_writer.writeAll(dest_path);
-    try pex_repl_writer.writeByte(std.fs.path.sep);
-    try pex_repl_writer.writeAll(venv.interpreter_relpath);
-    try pex_repl_writer.writeByte('\n');
-    try pex_repl_writer.writeAll(VENV_PEX_REPL_PY);
+    var zip = try Zip.init(self.pex_path, .{});
+    defer zip.deinit();
 
-    const activation_summary, const activation_details = res: {
-        if (wheels_to_install) |wheels| {
-            const summary = try std.fmt.allocPrint(
-                allocator,
-                "{d} {s} and {d} activated {s}",
-                .{
-                    self.pex_info.requirements.len,
-                    if (self.pex_info.requirements.len > 1) "requirements" else "requirement",
-                    wheels.entries.len,
-                    if (wheels.entries.len > 1) "distributions" else "distribution",
-                },
-            );
-            errdefer allocator.free(summary);
+    const wheels_to_install = try self.selectWheelsToInstall(
+        allocator,
+        interpreter,
+        &zip,
+    );
+    defer if (wheels_to_install) |wheels| wheels.deinit();
 
-            var details = std.ArrayList(u8).init(allocator);
-            errdefer details.deinit();
-
-            var details_writer = details.writer();
-            try details_writer.writeAll("Requirements:\n");
-            for (self.pex_info.requirements) |requirement| {
-                try details_writer.writeAll("  ");
-                try details_writer.writeAll(requirement);
-                try details_writer.writeByte('\n');
-            }
-            try details_writer.writeAll("Activated Distributions:\n");
-            for (wheels.entries) |wheel| {
-                try details_writer.writeAll("  ");
-                try details_writer.writeAll(wheel.name);
-                try details_writer.writeByte('\n');
-            }
-            break :res .{ summary, try details.toOwnedSlice() };
-        } else {
-            break :res .{ "no dependencies", "" };
-        }
-    };
-    defer {
-        if (wheels_to_install != null) {
-            allocator.free(activation_summary);
-            allocator.free(activation_details);
-        }
+    if (wheels_to_install) |wheels| {
+        try installWheels(allocator, &zip, &venv, work_path, work_dir, dest_path, &wheels);
+        log.info(
+            "VenvPex unzip and spread and script re-write took {d:.3}ms",
+            .{timer.read() / 1_000_000},
+        );
+    } else {
+        log.info("No wheels to install.", .{});
     }
 
-    try std.fmt.format(pex_repl_writer,
-        \\
-        \\
-        \\_PS1 = "{[ps1]s}"
-        \\_PS2 = "{[ps2]s}"
-        \\_PEX_VERSION = "{[pex_version]s}"
-        \\_SEED_PEX = "{[seed_pex]s}"
-        \\_ACTIVATION_SUMMARY = "{[activation_summary]s}"
-        \\_ACTIVATION_DETAILS = """{[activation_details]s}"""
-        \\
-        \\
-        \\if __name__ == "__main__":
-        \\    import os
-        \\
-        \\    _create_pex_repl(
-        \\        ps1=_PS1,
-        \\        ps2=_PS2,
-        \\        pex_version=_PEX_VERSION,
-        \\        pex_info=os.path.join(os.path.dirname(__file__), "PEX-INFO"),
-        \\        seed_pex=_SEED_PEX,
-        \\        activation_summary=_ACTIVATION_SUMMARY,
-        \\        activation_details=_ACTIVATION_DETAILS,
-        \\        history=os.environ.get("PEX_INTERPRETER_HISTORY", "0").lower() in ("1", "true"),
-        \\        history_file=os.environ.get("PEX_INTERPRETER_HISTORY_FILE")
-        \\    )()
-        \\
-    , .{
-        .ps1 = ">>>",
-        .ps2 = "...",
-        .pex_version = self.pex_info.build_properties.map.get("pex_version") orelse "(unknown version)",
-        .seed_pex = self.pex_path,
-        .activation_summary = activation_summary,
-        .activation_details = activation_details,
-    });
-
-    try pex_repl_fp.flush();
-    try markExecutable(pex_repl);
-    pex_repl.close();
+    try self.writeRepl(allocator, work_dir, &venv, dest_path, &wheels_to_install);
+    try self.writeMain(allocator, work_dir, &venv, dest_path);
 
     const pex_info = try work_dir.createFile("PEX-INFO", .{});
     defer pex_info.close();

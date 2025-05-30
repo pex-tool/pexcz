@@ -124,11 +124,21 @@ pub fn create(
     const venv_python_relpath = try Self.createInterpreterRelpath(allocator);
     errdefer allocator.free(venv_python_relpath);
 
+    if (std.fs.path.dirname(venv_python_relpath)) |venv_bin_dir| {
+        try dest_dir.makePath(venv_bin_dir);
+    }
+    if (native_os == .windows) {
+        try dest_dir.copyFile(interpreter.realpath, dest_dir, venv_python_relpath, .{});
+    } else {
+        try dest_dir.symLink(interpreter.realpath, venv_python_relpath, .{});
+    }
+
     const site_packages_relpath = try Self.createSitePackagesRelpath(
         allocator,
         interpreter,
     );
     errdefer allocator.free(site_packages_relpath);
+    try dest_dir.makePath(site_packages_relpath);
 
     const pyvenv_cfg = try dest_dir.createFile("pyvenv.cfg", .{});
     defer pyvenv_cfg.close();
@@ -147,14 +157,6 @@ pub fn create(
 
     try pyvenv_cfg.writeAll(pyvenv_cfg_contents);
 
-    if (std.fs.path.dirname(venv_python_relpath)) |venv_bin_dir| {
-        try dest_dir.makePath(venv_bin_dir);
-    }
-    if (native_os == .windows) {
-        try dest_dir.copyFile(interpreter.realpath, dest_dir, venv_python_relpath, .{});
-    } else {
-        try dest_dir.symLink(interpreter.realpath, venv_python_relpath, .{});
-    }
     if (include_pip) {
         const CheckCall = struct {
             pub fn printError() void {
