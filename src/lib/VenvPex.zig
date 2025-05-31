@@ -645,5 +645,17 @@ pub fn install(
     try pex_info_fp.writer().writeAll(self.pex_info_data);
     try pex_info_fp.flush();
 
+    if (native_os == .windows) {
+        var venv_dir = try std.fs.cwd().openDir(work_path, .{ .iterate = true });
+        defer venv_dir.close();
+
+        var walker = try venv_dir.walk(allocator);
+        defer walker.deinit();
+
+        log.warn("Venv contents:", .{});
+        while (try walker.next()) |entry| {
+            log.warn("{s}", .{entry.path});
+        }
+    }
     return venv;
 }
