@@ -364,7 +364,7 @@ pub const InterpreterIter = struct {
 
         var candidates = std.ArrayList([]const u8).init(allocator);
         errdefer {
-            for (candidates) |candidate| {
+            for (candidates.items) |candidate| {
                 allocator.free(candidate);
             }
             candidates.deinit();
