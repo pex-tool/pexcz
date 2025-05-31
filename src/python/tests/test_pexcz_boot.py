@@ -72,6 +72,10 @@ def test_boot(tmpdir):
     )
 
     python_source_root = os.path.abspath(os.path.join(pexcz.__file__, "..", ".."))
+    print(
+        "Booting from {python_source_root} ...".format(python_source_root=python_source_root),
+        file=sys.stderr,
+    )
 
     start = time.time()
     subprocess.check_call(
