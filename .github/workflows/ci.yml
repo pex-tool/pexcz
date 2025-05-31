@@ -31,7 +31,7 @@ jobs:
         with:
           version: "${{ env._PEXCZ_ZIG_VERSION }}"
       - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v6
       - name: Checkout pexcz
         uses: actions/checkout@v4
       - name: Cross Build
@@ -73,8 +73,9 @@ jobs:
         with:
           version: "${{ env._PEXCZ_ZIG_VERSION }}"
       - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v6
         with:
+          activate-environment: true
           python-version: ${{ matrix.python-version }}
       - name: Checkout pexcz
         uses: actions/checkout@v4
