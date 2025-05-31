@@ -39,7 +39,7 @@ jobs:
       - name: Cross Build
         run: zig build -Dtargets=All --release=small
   check-zig-fmt:
-    name: zig build -Dtargets=All
+    name: zig fmt --check .
     needs: org-check
     runs-on: ubuntu-24.04
     steps:
