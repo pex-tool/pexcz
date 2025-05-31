@@ -30,6 +30,8 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: "${{ env._PEXCZ_ZIG_VERSION }}"
+      - name: Checkout pexcz
+        uses: actions/checkout@v4
       - name: Cross Build
         run: zig build -Dtargets=All --release=small
   checks:
@@ -64,8 +66,6 @@ jobs:
           - os: windows-11-arm
             python-version: "3.13"
     steps:
-      - name: Checkout pexcz
-        uses: actions/checkout@v4
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
@@ -74,6 +74,8 @@ jobs:
         uses: astral-sh/setup-uv@v4
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Checkout pexcz
+        uses: actions/checkout@v4
       - name: Run CI checks
         run: uv run dev-cmd --color always --timings ci -- -vvs
 
