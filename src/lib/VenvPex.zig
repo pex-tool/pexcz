@@ -607,6 +607,7 @@ pub fn install(
     const venv = try Virtualenv.create(
         allocator,
         interpreter,
+        work_path,
         work_dir,
         .{
             .include_pip = include_pip,

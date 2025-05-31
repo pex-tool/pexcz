@@ -561,9 +561,13 @@ test "compare with packaging" {
         // N.B.: We cleanup this tmpdir only upon success at the end of the block to leave the
         // chroot around for inspection to debug failures.
 
+        const dest_path = try tmpdir.dir.realpathAlloc(std.testing.allocator, ".");
+        defer std.testing.allocator.free(dest_path);
+
         const venv = try Virtualenv.create(
             std.testing.allocator,
             interpreter.value,
+            dest_path,
             tmpdir.dir,
             .{ .include_pip = true },
         );
@@ -578,7 +582,7 @@ test "compare with packaging" {
             std.testing.allocator,
             &.{ venv.interpreter_relpath, "-m", "pip", "install", "packaging" },
             subprocess.CheckCall(CheckInstall.printError),
-            .{ .extra_child_run_args = .{ .cwd_dir = venv.dir } },
+            .{ .extra_child_run_args = .{ .cwd = venv.path, .cwd_dir = venv.dir } },
         );
 
         const CheckQuery = struct {
@@ -602,7 +606,7 @@ test "compare with packaging" {
                 \\
             },
             subprocess.CheckOutput(CheckQuery.printError),
-            .{ .extra_child_run_args = .{ .cwd_dir = venv.dir, .max_output_bytes = 1024 * 1024 } },
+            .{ .extra_child_run_args = .{ .cwd = venv.path, .cwd_dir = venv.dir, .max_output_bytes = 1024 * 1024 } },
         );
         defer std.testing.allocator.free(output);
 

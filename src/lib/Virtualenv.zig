@@ -20,6 +20,7 @@ const SitePackagesRelpath = struct {
 };
 
 allocator: std.mem.Allocator,
+path: []const u8,
 dir: std.fs.Dir,
 interpreter_relpath: []const u8,
 site_packages_relpath: SitePackagesRelpath,
@@ -71,7 +72,7 @@ fn createSitePackagesRelpath(
     }
 }
 
-pub fn load(allocator: std.mem.Allocator, venv_dir: std.fs.Dir) !Self {
+pub fn load(allocator: std.mem.Allocator, venv_path: []const u8, venv_dir: std.fs.Dir) !Self {
     var pyvenv_cfg = try venv_dir.openFile("pyvenv.cfg", .{});
     defer pyvenv_cfg.close();
 
@@ -137,6 +138,7 @@ pub fn load(allocator: std.mem.Allocator, venv_dir: std.fs.Dir) !Self {
 
     return .{
         .allocator = allocator,
+        .path = venv_path,
         .dir = venv_dir,
         .interpreter_relpath = interpreter_relpath.?,
         .site_packages_relpath = site_packages_relpath.?,
@@ -151,6 +153,7 @@ const CreateOptions = struct {
 pub fn create(
     allocator: std.mem.Allocator,
     interpreter: Interpreter,
+    dest_path: []const u8,
     dest_dir: std.fs.Dir,
     options: CreateOptions,
 ) !Self {
@@ -186,7 +189,7 @@ pub fn create(
                 ".",
             },
             subprocess.CheckCall(CheckCall.printError),
-            .{ .extra_child_run_args = .{ .cwd_dir = dest_dir } },
+            .{ .extra_child_run_args = .{ .cwd = dest_path, .cwd_dir = dest_dir } },
         );
     } else {
         if (std.fs.path.dirname(venv_python_relpath)) |venv_bin_dir| {
@@ -255,12 +258,13 @@ pub fn create(
             args,
             subprocess.CheckCall(CheckCall.printError),
             .{
-                .extra_child_run_args = .{ .cwd_dir = dest_dir },
+                .extra_child_run_args = .{ .cwd = dest_path, .cwd_dir = dest_dir },
             },
         );
     }
     return .{
         .allocator = allocator,
+        .path = dest_path,
         .dir = dest_dir,
         .interpreter_relpath = venv_python_relpath,
         .site_packages_relpath = site_packages_relpath,

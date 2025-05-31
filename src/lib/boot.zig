@@ -213,7 +213,7 @@ fn setupBoot(
     var dir = try venv_cache_dir.createAtomic(Fn, Fn.install, func, .{});
     defer dir.close();
 
-    const venv = try Virtualenv.load(allocator, dir);
+    const venv = try Virtualenv.load(allocator, venv_cache_dir.path, dir);
     defer venv.deinit();
 
     const python_exe = try std.fs.path.joinZ(
