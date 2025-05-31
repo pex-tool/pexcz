@@ -388,7 +388,7 @@ pub const InterpreterIter = struct {
                     if (entry_dir.access(exe_name, .{})) |_| {
                         const candidate = try std.fs.path.join(allocator, &.{ entry, exe_name });
                         errdefer allocator.free(candidate);
-                        candidates.append(candidate);
+                        try candidates.append(candidate);
                     } else |_| {}
                 }
             } else {
