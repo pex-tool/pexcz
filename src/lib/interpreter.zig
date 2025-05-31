@@ -363,7 +363,12 @@ pub const InterpreterIter = struct {
         }
 
         var candidates = std.ArrayList([]const u8).init(allocator);
-        errdefer candidates.deinit();
+        errdefer {
+            for (candidates) |candidate| {
+                allocator.free(candidate);
+            }
+            candidates.deinit();
+        }
 
         for (path.?) |entry| {
             var entry_dir = try std.fs.cwd().openDir(entry, .{ .iterate = true });
