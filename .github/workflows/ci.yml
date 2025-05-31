@@ -34,11 +34,28 @@ jobs:
         uses: astral-sh/setup-uv@v6
       - name: Checkout pexcz
         uses: actions/checkout@v4
+      - name: Check Formatting
+        run: zig fmt --check .
       - name: Cross Build
         run: zig build -Dtargets=All --release=small
+  check-zig-fmt:
+    name: zig build -Dtargets=All
+    needs: org-check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "${{ env._PEXCZ_ZIG_VERSION }}"
+      - name: Checkout pexcz
+        uses: actions/checkout@v4
+      - name: Check Formatting
+        run: zig fmt --check .
   checks:
     name: "${{ matrix.os }} Python ${{ matrix.python-version }}: uv run dev-cmd ci"
-    needs: cross-build
+    needs:
+      - cross-build
+      - check-zig-fmt
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -80,5 +97,5 @@ jobs:
       - name: Checkout pexcz
         uses: actions/checkout@v4
       - name: Run CI checks
-        run: uv run dev-cmd --color always --timings ci -- -vvs
+        run: uv run dev-cmd --color always --timings --skip zig-check-fmt ci -- -vvs
 
