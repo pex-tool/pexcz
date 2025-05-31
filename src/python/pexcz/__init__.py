@@ -450,7 +450,14 @@ def _load_pexcz():
             )
         with open(library_file_path, "wb") as fp:
             fp.write(pexcz_data)
-        pexcz = cdll.LoadLibrary(library_file_path)  # type: Pexcz
+        try:
+            pexcz = cdll.LoadLibrary(library_file_path)  # type: Pexcz
+        except OSError as e:
+            raise RuntimeError(
+                "Failed to load pexcz library from {library_file_path}: {err}".format(
+                    library_file_path=library_file_path, err=e
+                )
+            )
         dll = pexcz
         return pexcz
     finally:
