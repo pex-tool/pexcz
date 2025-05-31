@@ -320,7 +320,8 @@ def glibc_version_string_confstr():
     # https://github.com/python/cpython/blob/fcf1d003bf4f0100c/Lib/platform.py#L175-L183
     try:
         # Should be a string like "glibc 2.17".
-        version_string = os.confstr("CS_GNU_LIBC_VERSION")
+        # N.B.: os.confstr is not a defined attribute on Windows.
+        version_string = os.confstr("CS_GNU_LIBC_VERSION")  # type: ignore[attr-defined]
         assert version_string is not None
         _, version = version_string.rsplit()
     except (AssertionError, AttributeError, OSError, ValueError):
