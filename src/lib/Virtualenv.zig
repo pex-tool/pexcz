@@ -6,6 +6,8 @@ const subprocess = @import("subprocess.zig");
 
 pub const VIRTUALENV_PY = @embedFile("virtualenv.py");
 
+const log = std.log.scoped(.virtualenv);
+
 const SitePackagesRelpath = struct {
     value: []const u8,
     owned: bool,
@@ -231,6 +233,16 @@ pub fn create(
                 std.debug.print("Failed to install Pip in venv.\n", .{});
             }
         };
+
+        if (native_os == .windows) {
+            log.warn("About to try to run: {s} ...", .{venv_python_relpath});
+            var dest_dir_iter = dest_dir.iterate();
+            log.warn("Dest venv dir contains:", .{});
+            while (try dest_dir_iter.next()) |entry| {
+                log.warn("    {s}", .{entry.name});
+            }
+        }
+
         // TODO: XXX: If no ensurepip module, dowload a pip .pyz and install that way.
         const args: []const []const u8 = if (interpreter.version.major < 3) &.{
             venv_python_relpath,

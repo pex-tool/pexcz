@@ -341,7 +341,6 @@ pub const InterpreterIter = struct {
         if (path == null) {
             if (try getenv(allocator, "PATH")) |path_entries| {
                 defer path_entries.deinit();
-                if (native_os == .windows) std.log.warn("Read PATH: {s}", .{path_entries.value});
 
                 var buf = std.ArrayList([]const u8).init(allocator);
                 errdefer {
@@ -380,9 +379,6 @@ pub const InterpreterIter = struct {
         }
 
         for (path.?) |entry| {
-            if (native_os == .windows) {
-                log.warn("About to try to open dir: {s} {x} ...", .{ entry, entry });
-            }
             var entry_dir = std.fs.cwd().openDir(entry, .{ .iterate = true }) catch |err| {
                 log.debug("Cannot open PATH entry {s}, continuing: {}", .{ entry, err });
                 continue;
@@ -561,7 +557,7 @@ test "compare with packaging" {
         };
         defer if (free_tags) std.testing.allocator.free(actual_tags);
 
-        var tmpdir = std.testing.tmpDir(.{});
+        var tmpdir = std.testing.tmpDir(.{ .iterate = true });
         // N.B.: We cleanup this tmpdir only upon success at the end of the block to leave the
         // chroot around for inspection to debug failures.
 
