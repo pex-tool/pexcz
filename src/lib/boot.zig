@@ -40,7 +40,14 @@ pub fn bootPexZWindows(
     };
     defer if (child_argv.len > 2) allocator.free(child_argv);
 
+    var env_map = try std.process.getEnvMap(allocator);
+    defer env_map.deinit();
+
+    try env_map.put("VIRTUAL_ENV", std.mem.span(boot_spec.venv_path));
+
     var process = std.process.Child.init(child_argv, allocator);
+    process.env_map = &env_map;
+
     switch (try process.spawnAndWait()) {
         .Exited => |code| return code,
         .Signal => |_| return -1, // -1 * sig,
@@ -104,10 +111,12 @@ pub fn bootPexZPosix(
 
 const BootSpec = struct {
     allocator: std.mem.Allocator,
+    venv_path: [*:0]const u8,
     python_exe: [*:0]const u8,
     main_py: [*:0]const u8,
 
     fn deinit(self: @This()) void {
+        self.allocator.free(std.mem.span(self.venv_path));
         self.allocator.free(std.mem.span(self.python_exe));
         self.allocator.free(std.mem.span(self.main_py));
     }
@@ -238,5 +247,10 @@ fn setupBoot(
         allocator,
         &.{ venv_cache_dir.path, "__main__.py" },
     );
-    return .{ .allocator = allocator, .python_exe = python_exe, .main_py = main_py };
+    return .{
+        .allocator = allocator,
+        .venv_path = try allocator.dupeZ(u8, venv_cache_dir.path),
+        .python_exe = python_exe,
+        .main_py = main_py,
+    };
 }
