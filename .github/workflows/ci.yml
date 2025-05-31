@@ -34,8 +34,6 @@ jobs:
         uses: astral-sh/setup-uv@v6
       - name: Checkout pexcz
         uses: actions/checkout@v4
-      - name: Check Formatting
-        run: zig fmt --check .
       - name: Cross Build
         run: zig build -Dtargets=All --release=small
   check-zig-fmt:
