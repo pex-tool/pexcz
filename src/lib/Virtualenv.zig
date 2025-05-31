@@ -236,10 +236,11 @@ pub fn create(
 
         if (native_os == .windows) {
             log.warn("About to try to run: {s} ...", .{venv_python_relpath});
-            var dest_dir_iter = dest_dir.iterate();
+            var dest_dir_iter = try dest_dir.walk(allocator);
+            defer dest_dir_iter.deinit();
             log.warn("Dest venv dir contains:", .{});
             while (try dest_dir_iter.next()) |entry| {
-                log.warn("    {s}", .{entry.name});
+                log.warn("    {s}", .{entry.path});
             }
         }
 
