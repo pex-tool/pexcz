@@ -341,16 +341,12 @@ pub const InterpreterIter = struct {
         if (path == null) {
             if (try getenv(allocator, "PATH")) |path_entries| {
                 defer path_entries.deinit();
-                if (native_os == .windows) std.log.warn("Read PATH: {s}", .{path_entries});
+                if (native_os == .windows) std.log.warn("Read PATH: {s}", .{path_entries.value});
 
                 var buf = std.ArrayList([]const u8).init(allocator);
                 errdefer buf.deinit();
 
-                var path_iter = std.mem.splitScalar(
-                    u8,
-                    path_entries.value,
-                    if (native_os == .windows) ';' else ':',
-                );
+                var path_iter = std.mem.splitScalar(u8, path_entries.value, std.fs.path.delimiter);
                 while (path_iter.next()) |entry| {
                     try buf.append(entry);
                 }
