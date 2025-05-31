@@ -344,16 +344,28 @@ pub const InterpreterIter = struct {
                 if (native_os == .windows) std.log.warn("Read PATH: {s}", .{path_entries.value});
 
                 var buf = std.ArrayList([]const u8).init(allocator);
-                errdefer buf.deinit();
+                errdefer {
+                    for (buf.items) |entry| {
+                        allocator.free(entry);
+                    }
+                    buf.deinit();
+                }
 
                 var path_iter = std.mem.splitScalar(u8, path_entries.value, std.fs.path.delimiter);
                 while (path_iter.next()) |entry| {
-                    try buf.append(entry);
+                    try buf.append(try allocator.dupe(u8, entry));
                 }
                 path = try buf.toOwnedSlice();
             }
         }
-        defer if (search_path == null and path != null) allocator.free(path.?);
+        defer {
+            if (search_path == null and path != null) {
+                for (path.?) |entry| {
+                    allocator.free(entry);
+                }
+                allocator.free(path.?);
+            }
+        }
 
         if (path == null) {
             return error.NoSearchPath;
