@@ -56,8 +56,8 @@ def test_boot(tmpdir):
     # # ~3.5x faster
 
     start = time.time()
-    subprocess.check_call(args=[pex, "Moo!"])
-    # subprocess.check_call(args=[pex, "-c", "import torch; print(torch.__file__)"])
+    subprocess.check_call(args=[sys.executable, pex, "Moo!"])
+    # subprocess.check_call(args=[sys.executable, pex, "-c", "import torch; print(torch.__file__)"])
     print(
         "Traditional PEX run took {elapsed:.5}ms".format(elapsed=(time.time() - start) * 1000),
         file=sys.stderr,
