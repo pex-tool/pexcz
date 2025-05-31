@@ -341,6 +341,7 @@ pub const InterpreterIter = struct {
         if (path == null) {
             if (try getenv(allocator, "PATH")) |path_entries| {
                 defer path_entries.deinit();
+                if (native_os == .windows) std.log.warn("Read PATH: {s}", .{path_entries});
 
                 var buf = std.ArrayList([]const u8).init(allocator);
                 errdefer buf.deinit();
