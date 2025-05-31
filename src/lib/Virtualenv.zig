@@ -42,7 +42,10 @@ fn createSitePackagesRelpath(
     interpreter: Interpreter,
 ) !SitePackagesRelpath {
     if (native_os == .windows) {
-        return try std.fs.path.join(allocator, &.{ "Lib", "site-packages" });
+        return .{
+            .value = try std.fs.path.join(allocator, &.{ "Lib", "site-packages" }),
+            .owned = true,
+        };
     }
     const python_version = try std.fmt.allocPrint(
         allocator,
