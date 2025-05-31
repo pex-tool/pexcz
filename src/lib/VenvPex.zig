@@ -433,7 +433,7 @@ fn writeRepl(
         \\_PS1 = "{[ps1]s}"
         \\_PS2 = "{[ps2]s}"
         \\_PEX_VERSION = "{[pex_version]s}"
-        \\_SEED_PEX = "{[seed_pex]s}"
+        \\_SEED_PEX = r"{[seed_pex]s}"
         \\_ACTIVATION_SUMMARY = "{[activation_summary]s}"
         \\_ACTIVATION_DETAILS = """{[activation_details]s}"""
         \\
@@ -506,9 +506,9 @@ fn writeMain(
         var inject_env_writer = inject_env_buf.writer();
         var entry_iter = self.pex_info.inject_env.map.iterator();
         while (entry_iter.next()) |entry| {
-            try inject_env_writer.writeByte('"');
+            try inject_env_writer.writeAll("r\"");
             try inject_env_writer.writeAll(entry.key_ptr.*);
-            try inject_env_writer.writeAll("\":\"");
+            try inject_env_writer.writeAll("\":r\"");
             try inject_env_writer.writeAll(entry.value_ptr.*);
             try inject_env_writer.writeAll("\",");
         }
@@ -523,7 +523,7 @@ fn writeMain(
         var inject_args_buf = std.ArrayList(u8).init(allocator);
         var inject_args_writer = inject_args_buf.writer();
         for (self.pex_info.inject_args) |arg| {
-            try inject_args_writer.writeByte('"');
+            try inject_args_writer.writeAll("r\"");
             try inject_args_writer.writeAll(arg);
             try inject_args_writer.writeAll("\",");
         }
@@ -532,15 +532,14 @@ fn writeMain(
     defer if (inject_args.len > 0) allocator.free(inject_args);
 
     var entry_point: ?[]const u8 = null;
-    defer if (entry_point) |ep| allocator.free(ep);
     if (self.pex_info.entry_point) |ep| {
-        entry_point = try std.mem.join(allocator, ep, &.{ "\"", "\"" });
+        entry_point = try std.mem.join(allocator, ep, &.{ "r\"", "\"" });
     }
 
     var script: ?[]const u8 = null;
     defer if (script) |name| allocator.free(name);
     if (self.pex_info.script) |name| {
-        script = try std.mem.join(allocator, name, &.{ "\"", "\"" });
+        script = try std.mem.join(allocator, name, &.{ "r\"", "\"" });
     }
 
     const shebang_python = try std.fs.path.join(
@@ -554,9 +553,9 @@ fn writeMain(
         \\
         \\if __name__ == "__main__":
         \\    boot(
-        \\        shebang_python="{[shebang_python]s}",
-        \\        venv_bin_dir="{[venv_bin_dir]s}",
-        \\        bin_path="{[bin_path]s}",
+        \\        shebang_python=r"{[shebang_python]s}",
+        \\        venv_bin_dir=r"{[venv_bin_dir]s}",
+        \\        bin_path=r"{[bin_path]s}",
         \\        strip_pex_env={[strip_pex_env]s},
         \\        inject_env={{{[inject_env]s}}},
         \\        inject_args=[{[inject_args]s}],
