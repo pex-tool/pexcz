@@ -533,9 +533,6 @@ def boot(
     boot_python = python or sys.executable
     python_exe = to_cstr(boot_python)
 
-    if CURRENT_OS is WINDOWS:
-        sys.exit(_pexcz.boot(python_exe, pex_file))
-
     if python_args or args:
         arg_list = [boot_python]
         if python_args:
@@ -546,6 +543,9 @@ def boot(
         argv = to_array_of_cstr(arg_list)
     else:
         argv = to_array_of_cstr(sys.argv)
+
+    if CURRENT_OS is WINDOWS:
+        sys.exit(_pexcz.boot(python_exe, pex_file, ctypes.cast(argv, ctypes.POINTER(type(argv)))))
 
     environ = to_array_of_cstr(
         tuple((name + "=" + value) for name, value in (env or os.environ).items())

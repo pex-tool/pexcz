@@ -16,17 +16,31 @@ pub fn bootPexZWindows(
     alloc: anytype,
     python_exe_path: [*:0]const u8,
     pex_path: [*:0]const u8,
+    argv: [][*:0]u8,
 ) !i32 {
     const allocator = alloc.allocator();
 
     const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
     defer boot_spec.deinit();
 
-    // TODO: XXX: incorporate original argv.
-    var process = std.process.Child.init(
-        &.{ std.mem.span(boot_spec.python_exe), std.mem.span(boot_spec.main_py) },
-        allocator,
-    );
+    const child_argv: []const []const u8 = res: {
+        if (argv.len > 2) {
+            var child_argv = try std.ArrayList([]const u8).initCapacity(allocator, argv.len);
+            errdefer child_argv.deinit();
+
+            try child_argv.append(std.mem.span(boot_spec.python_exe));
+            try child_argv.append(std.mem.span(boot_spec.main_py));
+            for (argv[2..]) |arg| {
+                try child_argv.append(std.mem.span(arg));
+            }
+            break :res try child_argv.toOwnedSlice();
+        } else {
+            break :res &.{ std.mem.span(boot_spec.python_exe), std.mem.span(boot_spec.main_py) };
+        }
+    };
+    defer if (child_argv.len > 2) allocator.free(child_argv);
+
+    var process = std.process.Child.init(child_argv, allocator);
     switch (try process.spawnAndWait()) {
         .Exited => |code| return code,
         .Signal => |_| return -1, // -1 * sig,
@@ -68,7 +82,7 @@ pub fn bootPexZPosix(
         log.debug("Calculate boot spec took {d:.3}µs", .{elapsed.read() / 1_000});
     }
 
-    var exec_argv = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, 2 + argv.len);
+    var exec_argv = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, argv.len + 1);
     defer exec_argv.deinit();
 
     try exec_argv.append(boot_spec.python_exe);

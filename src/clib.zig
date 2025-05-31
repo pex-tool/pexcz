@@ -29,6 +29,7 @@ const BootResult = enum(c_int) {
 fn bootWindows(
     python: [*:0]const u8,
     pex: [*:0]const u8,
+    argv: [*:null]?[*:0]const u8,
 ) callconv(.c) c_int {
     var timer = std.time.Timer.start() catch null;
     defer if (timer) |*elpased| log.info(
@@ -42,7 +43,7 @@ fn bootWindows(
         alloc.deinit();
     }
 
-    return pexcz.bootPexZWindows(&alloc, python, pex) catch |err| {
+    return pexcz.bootPexZWindows(&alloc, python, pex, pexcz.sliceZ(argv)) catch |err| {
         log.err(
             "Failed to boot {[pex]s} using {[python]s}: {[err]}\n",
             .{ .pex = pex, .python = python, .err = err },
