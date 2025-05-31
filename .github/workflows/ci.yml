@@ -1,0 +1,79 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+defaults:
+  run:
+    shell: bash
+env:
+  _PEXCZ_ZIG_VERSION: 0.14.1
+concurrency:
+  group: CI-${{ github.ref }}
+  # Queue on all branches and tags, but only cancel overlapping PR burns.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+jobs:
+  org-check:
+    name: Check GitHub Organization
+    if: github.repository_owner == 'pex-tool'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Noop
+        run: "true"
+  cross-build:
+    name: zig build -Dtargets=All
+    needs: org-check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "${{ env._PEXCZ_ZIG_VERSION }}"
+      - name: Cross Build
+        run: zig build -Dtargets=All --release=small
+  checks:
+    name: "${{ matrix.os }} Python ${{ matrix.python-version }}: uv run dev-cmd ci"
+    needs: cross-build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python-version: "3.8"
+          - os: ubuntu-24.04
+            python-version: "3.9"
+          - os: ubuntu-24.04
+            python-version: "3.10"
+          - os: ubuntu-24.04
+            python-version: "3.11"
+          - os: ubuntu-24.04
+            python-version: "3.12"
+          - os: ubuntu-24.04
+            python-version: "3.13"
+          - os: ubuntu-24.04-arm
+            python-version: "3.13"
+
+          - os: macos-13
+            python-version: "3.13"
+          - os: macos-15
+            python-version: "3.13"
+
+          - os: windows-2025
+            python-version: "3.13"
+          - os: windows-11-arm
+            python-version: "3.13"
+    steps:
+      - name: Checkout pexcz
+        uses: actions/checkout@v4
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "${{ env._PEXCZ_ZIG_VERSION }}"
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run CI checks
+        run: uv run dev-cmd --color always --timings ci -- -vvs
+
