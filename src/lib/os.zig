@@ -16,7 +16,7 @@ pub const Value = struct {
 
 pub fn getenv(allocator: std.mem.Allocator, name: []const u8) !?Value {
     if (native_os == .windows) {
-        const w_key = try std.unicode.utf8ToUtf16LeAllocZ(allocator, name);
+        const w_key = try std.unicode.wtf8ToWtf16LeAllocZ(allocator, name);
         defer allocator.free(w_key);
 
         var lpBuffer: [32_767:0]u16 = undefined;
@@ -33,7 +33,7 @@ pub fn getenv(allocator: std.mem.Allocator, name: []const u8) !?Value {
         const value_w = lpBuffer[0..len];
         return .{
             .allocator = allocator,
-            .value = try std.unicode.utf16LeToUtf8Alloc(allocator, value_w),
+            .value = try std.unicode.wtf16LeToWtf8Alloc(allocator, value_w),
         };
     } else if (std.posix.getenv(name)) |value| {
         return .{ .value = value };
