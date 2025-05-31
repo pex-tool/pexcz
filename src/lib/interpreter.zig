@@ -371,7 +371,10 @@ pub const InterpreterIter = struct {
         }
 
         for (path.?) |entry| {
-            var entry_dir = try std.fs.cwd().openDir(entry, .{ .iterate = true });
+            var entry_dir = std.fs.cwd().openDir(entry, .{ .iterate = true }) catch |err| {
+                log.debug("Cannot open PATH entry {s}, continuing: {}", .{ entry, err });
+                continue;
+            };
             defer entry_dir.close();
 
             if (native_os == .windows) {

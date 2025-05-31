@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Noop
-        run: "true"
+        run: 'true'
   cross-build:
     name: zig build -Dtargets=All
     needs: org-check
@@ -44,29 +44,29 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            python-version: "3.8"
+            python-version: '3.8'
           - os: ubuntu-24.04
-            python-version: "3.9"
+            python-version: '3.9'
           - os: ubuntu-24.04
-            python-version: "3.10"
+            python-version: '3.10'
           - os: ubuntu-24.04
-            python-version: "3.11"
+            python-version: '3.11'
           - os: ubuntu-24.04
-            python-version: "3.12"
+            python-version: '3.12'
           - os: ubuntu-24.04
-            python-version: "3.13"
+            python-version: '3.13'
           - os: ubuntu-24.04-arm
-            python-version: "3.13"
+            python-version: '3.13'
 
           - os: macos-13
-            python-version: "3.13"
+            python-version: '3.13'
           - os: macos-15
-            python-version: "3.13"
+            python-version: '3.13'
 
           - os: windows-2025
-            python-version: "3.13"
+            python-version: '3.13'
           - os: windows-11-arm
-            python-version: "3.13"
+            python-version: '3.13'
     steps:
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
@@ -75,10 +75,7 @@ jobs:
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@v6
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
+          activate-environment: 'true'
           python-version: ${{ matrix.python-version }}
       - name: Checkout pexcz
         uses: actions/checkout@v4
