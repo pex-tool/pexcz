@@ -594,7 +594,7 @@ test "compare with packaging" {
                 \\
             },
             subprocess.CheckOutput(CheckQuery.printError),
-            .{ .extra_child_run_args = .{ .cwd_dir = venv.dir } },
+            .{ .extra_child_run_args = .{ .cwd_dir = venv.dir, .max_output_bytes = 1024 * 1024 } },
         );
         defer std.testing.allocator.free(output);
 
