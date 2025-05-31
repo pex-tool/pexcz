@@ -26,7 +26,10 @@ include = ["pexcz*"]
 dev = [
     "dev-cmd[old-pythons]; python_version >= '3.8'",
     # We pin at 0.971 since this is the last version of mypy that supports `--python-version 2.7`.
-    "mypy[python2]==0.971; python_version >= '3.6'",
+    # The python2 extra uses typed-ast which relies on the PyFutureFeatures symbol which was made
+    # private here: https://github.com/python/cpython/pull/117412
+    "mypy[python2]==0.971; python_version >= '3.6' and python_version < '3.13'",
+    "mypy; python_version >= '3.13'",
     "pex",
     "pytest",
     "ruff; python_version >= '3.8'",
@@ -118,8 +121,8 @@ steps = [[
     [
         "fmt",
         "lint",
-        # Parallelizing the type checks and test is safe (they don't modify files), and it nets a ~3x
-        # speedup over running them all serially.
+        # Parallelizing the type checks and test is safe (they don't modify files), and it nets a
+        # ~3x speedup over running them all serially.
         ["type-check-py3.{8..13}", "pytest"],
     ]
 ]]
