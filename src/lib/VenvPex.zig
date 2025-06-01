@@ -128,6 +128,8 @@ fn selectWheelsToInstall(
 
                 var stash_dir: ?[]const u8 = null;
                 if (try zip.extractToSlice(allocator, wheel_layout)) |layout_data| {
+                    defer  allocator.free(layout_data);
+
                     const layout = try std.json.parseFromSlice(
                         WheelLayout,
                         allocator,
