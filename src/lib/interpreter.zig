@@ -327,6 +327,34 @@ pub const Interpreter = struct {
     pub fn rankedTags(self: Self, allocator: std.mem.Allocator) !RankedTags {
         return RankedTags.init(allocator, self.supported_tags);
     }
+
+    pub fn resolve_base_interpreter(self: Self, allocator: std.mem.Allocator) !?std.json.Parsed(Self) {
+        if (self.base_prefix) |base_prefix| {
+            const path = res: {
+                if (native_os == .windows) {
+                    break :res try std.fs.path.join(
+                        allocator,
+                        &.{ base_prefix, std.fs.path.basename(self.path) },
+                    );
+                } else {
+                    break :res try std.fs.path.join(
+                        allocator,
+                        &.{ base_prefix, "bin", std.fs.path.basename(self.path) },
+                    );
+                }
+            };
+            defer allocator.free(path);
+            std.fs.cwd().access(path, .{}) catch |err| {
+                log.debug(
+                    "Failed to find base interpreter given base_prefix of {s} at {s}: {}",
+                    .{ base_prefix, path, err },
+                );
+                return null;
+            };
+            return try Self.identify(allocator, path);
+        }
+        return null;
+    }
 };
 
 pub const InterpreterIter = struct {

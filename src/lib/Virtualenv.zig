@@ -157,13 +157,18 @@ pub fn create(
     dest_dir: std.fs.Dir,
     options: CreateOptions,
 ) !Self {
+    const resolved_base_interpreter = try interpreter.resolve_base_interpreter(allocator);
+    defer if (resolved_base_interpreter) |interp| interp.deinit();
+
+    const base_interpreter = if (resolved_base_interpreter) |interp| interp.value else interpreter;
+
     const venv_python_relpath = try Self.createInterpreterRelpath(allocator);
     errdefer allocator.free(venv_python_relpath);
 
-    const site_packages_relpath = try Self.createSitePackagesRelpath(allocator, interpreter);
+    const site_packages_relpath = try Self.createSitePackagesRelpath(allocator, base_interpreter);
     errdefer site_packages_relpath.deinit(allocator);
 
-    if (interpreter.version.major < 3) {
+    if (base_interpreter.version.major < 3) {
         var virtualenv = try dest_dir.createFile("virtualenv.py", .{});
         errdefer virtualenv.close();
 
@@ -180,7 +185,7 @@ pub fn create(
         try subprocess.run(
             allocator,
             &.{
-                interpreter.path,
+                base_interpreter.path,
                 "virtualenv.py",
                 "--no-download",
                 "--no-pip",
@@ -196,15 +201,15 @@ pub fn create(
             try dest_dir.makePath(venv_bin_dir);
         }
         if (native_os == .windows) {
-            try dest_dir.copyFile(interpreter.realpath, dest_dir, venv_python_relpath, .{});
+            try dest_dir.copyFile(base_interpreter.realpath, dest_dir, venv_python_relpath, .{});
         } else {
-            try dest_dir.symLink(interpreter.realpath, venv_python_relpath, .{});
+            try dest_dir.symLink(base_interpreter.realpath, venv_python_relpath, .{});
         }
 
         try dest_dir.makePath(site_packages_relpath.value);
     }
 
-    const home_bin_dir = std.fs.path.dirname(interpreter.realpath) orelse {
+    const home_bin_dir = std.fs.path.dirname(base_interpreter.realpath) orelse {
         return error.UnparentedPythonError;
     };
 
@@ -238,7 +243,7 @@ pub fn create(
         };
 
         // TODO: XXX: If no ensurepip module, dowload a pip .pyz and install that way.
-        const args: []const []const u8 = if (interpreter.version.major < 3) &.{
+        const args: []const []const u8 = if (base_interpreter.version.major < 3) &.{
             venv_python_relpath,
             "-m",
             "ensurepip",
