@@ -426,7 +426,6 @@ pub const InterpreterIter = struct {
                 }) |exe_name| {
                     if (entry_dir.access(exe_name, .{})) |_| {
                         const candidate = try std.fs.path.join(allocator, &.{ entry, exe_name });
-                        errdefer allocator.free(candidate);
                         try candidates.append(candidate);
                     } else |_| {}
                 }
@@ -496,7 +495,6 @@ pub const InterpreterIter = struct {
                                         allocator,
                                         &.{ entry, dir_ent.name },
                                     );
-                                    errdefer allocator.free(candidate);
                                     log.debug("... candidate: {s}", .{candidate});
                                     try candidates.append(candidate);
                                 } else |_| {}

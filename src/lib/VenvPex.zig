@@ -117,6 +117,7 @@ fn selectWheelsToInstall(
                     },
                 );
                 const wheel_prefix = try std.fmt.allocPrint(allocator, ".deps/{s}", .{wheel_name});
+                errdefer allocator.free(wheel_prefix);
 
                 const wheel_layout = try std.fmt.allocPrintZ(
                     allocator,
