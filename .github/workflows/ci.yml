@@ -9,6 +9,7 @@ defaults:
     shell: bash
 env:
   _PEXCZ_ZIG_VERSION: 0.14.1
+  _PEXCZ_BUILD_FETCH_VIRTUALENV_BEARER: ${{ secrets.GITHUB_TOKEN }}
 concurrency:
   group: CI-${{ github.ref }}
   # Queue on all branches and tags, but only cancel overlapping PR burns.

@@ -66,15 +66,36 @@ fn fetch_to(allocator: std.mem.Allocator, output_path: []const u8, sha: ?[]const
         };
     }
 
+    var argc: usize = 5;
+    var argv: [7][]const u8 = .{
+        "curl",
+        "-fL",
+        url,
+        "-o",
+        output_path,
+        "--oauth2-bearer",
+        "<replace me>",
+    };
+
+    const bearer_token: ?[]u8 = std.process.getEnvVarOwned(
+        allocator,
+        "_PEXCZ_BUILD_FETCH_VIRTUALENV_BEARER",
+    ) catch |err| res: {
+        if (err == error.EnvironmentVariableNotFound) {
+            break :res null;
+        }
+        return err;
+    };
+    defer if (argc == argv.len) allocator.free(argv[argv.len - 1]);
+
+    if (bearer_token) |bearer| {
+        argv[argv.len - 1] = bearer;
+        argc = argv.len;
+    }
+
     const result = std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &.{
-            "curl",
-            "-fL",
-            url,
-            "-o",
-            output_path,
-        },
+        .argv = argv[0..argc],
     }) catch |curl_launch_err| {
         fatal(
             "Failed to launch curl process to fetch {s} to {s}: {}",
