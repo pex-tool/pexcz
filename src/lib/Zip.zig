@@ -87,11 +87,15 @@ pub fn extractToSlice(
             return error.ZipEntryToLarge;
         }
         const buffer = try allocator.alloc(u8, @intCast(stat.size));
+        errdefer allocator.free(buffer);
+
         var out = std.io.fixedBufferStream(buffer);
         try self.extractIndexToWriter(@intCast(index), std.mem.span(name), out.writer());
         return buffer;
     } else {
         var buffer = std.ArrayList(u8).init(allocator);
+        errdefer allocator.free(buffer);
+
         try self.extractIndexToWriter(@intCast(index), std.mem.span(name), buffer.writer());
         return try buffer.toOwnedSlice();
     }
