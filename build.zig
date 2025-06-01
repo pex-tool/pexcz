@@ -46,7 +46,6 @@ pub fn build(b: *std.Build) !void {
         .target = b.graph.host,
     });
     const tool_step = b.addRunArtifact(tool);
-    tool_step.addCheck(.{ .expect_term = .{ .Exited = 0 } });
     // TODO(John Sirois): Plumb --sha arg from a build option.
     const virtualenv_py_resource = tool_step.addOutputFileArg("virtualenv.py");
 
