@@ -75,10 +75,10 @@ check-fmt = ["ruff", "format", "--diff"]
 lint = ["ruff", "check", "--fix"]
 check-lint = ["ruff", "check"]
 
-zig-fmt = ["build-system/zig.py", "fmt", "."]
-zig-check-fmt = ["build-system/zig.py", "fmt", ".", "--check"]
+zig-fmt = ["zig", "fmt", "."]
+zig-check-fmt = ["zig", "fmt", ".", "--check"]
 
-zig-test = ["build-system/zig.py", "build", "--color", "on", "test"]
+zig-test = ["zig", "build", "--color", "on", "test"]
 
 [tool.dev-cmd.commands.type-check.factors]
 py = "The Python version to type check in <major>.<minor> form; i.e.: 3.13."
@@ -99,7 +99,7 @@ cwd = "src/python/tests"
 accepts-extra-args = true
 
 [tool.dev-cmd.commands.zig]
-args = ["build-system/zig.py"]
+args = ["zig"]
 accepts-extra-args = true
 
 [tool.dev-cmd.commands.package]
