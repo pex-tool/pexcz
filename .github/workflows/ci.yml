@@ -93,8 +93,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Seed Pip
         if: matrix.os == 'windows-11-arm'
-        shell: bash
-        run: UV_VENV_SEED=1 uv venv
+        run: uv venv --seed
       - name: Run CI checks
         run: uv run dev-cmd --color always --timings --skip zig-check-fmt ci -- -vvs
 
