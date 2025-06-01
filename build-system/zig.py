@@ -51,7 +51,7 @@ def build_components():
     if zig:
         args = shlex.split(zig)
     else:
-        args = [find_zig(), "build"]
+        args = ["zig", "build"]
 
     targets = os.environ.get("PEXCZ_BUILD_TARGETS", "Current")
     release_mode = os.environ.get("PEXCZ_RELEASE_MODE", "off")
