@@ -156,6 +156,18 @@ fn selectWheelsToInstall(
     return .{ .allocator = allocator, .entries = try wheels_to_install.toOwnedSlice() };
 }
 
+fn markExecutable(file: std.fs.File) !void {
+    if (native_os == .windows) {
+        return;
+    }
+    const metadata = try file.metadata();
+    var permissions = metadata.permissions();
+    permissions.inner.unixSet(.user, .{ .execute = true });
+    permissions.inner.unixSet(.group, .{ .execute = true });
+    permissions.inner.unixSet(.other, .{ .execute = true });
+    try file.setPermissions(permissions);
+}
+
 fn installWheels(
     allocator: std.mem.Allocator,
     zip: *Zip,
@@ -337,32 +349,15 @@ fn installWheels(
                     }
                     try rewritten_script_writer.writeAll(buf[0..amount]);
                 }
-                try rewritten_script_fp.flush();
 
-                const metadata = try rewritten_script.metadata();
-                var permissions = metadata.permissions();
-                permissions.inner.unixSet(.user, .{ .execute = true });
-                permissions.inner.unixSet(.group, .{ .execute = true });
-                permissions.inner.unixSet(.other, .{ .execute = true });
-                try rewritten_script.setPermissions(permissions);
+                try rewritten_script_fp.flush();
+                try markExecutable(rewritten_script);
                 rewritten_script.close();
 
                 try scripts_dir.rename(rewritten_script_name, script_entry.name);
             }
         }
     }
-}
-
-fn markExecutable(file: std.fs.File) !void {
-    if (native_os == .windows) {
-        return;
-    }
-    const metadata = try file.metadata();
-    var permissions = metadata.permissions();
-    permissions.inner.unixSet(.user, .{ .execute = true });
-    permissions.inner.unixSet(.group, .{ .execute = true });
-    permissions.inner.unixSet(.other, .{ .execute = true });
-    try file.setPermissions(permissions);
 }
 
 fn writeRepl(
