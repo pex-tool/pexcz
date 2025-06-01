@@ -2,6 +2,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ def build_components():
     if zig:
         args = shlex.split(zig)
     else:
-        args = ["zig", "build"]
+        args = [sys.executable, "-m", "ziglang", "build"]
 
     targets = os.environ.get("PEXCZ_BUILD_TARGETS", "Current")
     release_mode = os.environ.get("PEXCZ_RELEASE_MODE", "off")

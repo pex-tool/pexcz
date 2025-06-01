@@ -84,10 +84,6 @@ jobs:
           - os: windows-11-arm
             python-version: '3.13'
     steps:
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: "${{ env._PEXCZ_ZIG_VERSION }}"
       - name: Checkout pexcz
         uses: actions/checkout@v4
       - name: Install the latest version of uv
