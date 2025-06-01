@@ -192,9 +192,9 @@ pub fn run(
 pub fn checkCall(result: RunResult) !void {
     switch (result.term) {
         .Exited => |code| {
-            if (code != 0) return error.InterpreterIdentificationError;
+            if (code != 0) return error.CalledProcessError;
         },
-        else => return error.InterpreterIdentificationError,
+        else => return error.CalledProcessError,
     }
 }
 

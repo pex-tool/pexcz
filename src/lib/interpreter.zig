@@ -1,6 +1,7 @@
 const Elf32_Ehdr = std.elf.Elf32_Ehdr;
 const Elf64_Ehdr = std.elf.Elf64_Ehdr;
-const native_os = @import("builtin").target.os.tag;
+const builtin = @import("builtin");
+const native_os = builtin.target.os.tag;
 const std = @import("std");
 
 const TempDirs = @import("fs.zig").TempDirs;
@@ -215,6 +216,7 @@ pub const Interpreter = struct {
     version: VersionInfo,
     marker_env: Marker.Env,
     macos_framework_build: bool,
+    has_ensurepip: bool,
 
     // TODO: XXX: See if we can just keep tags as []const u8 opaque strings for set membership
     //  tests.
@@ -542,6 +544,10 @@ test "compare with packaging" {
 
     while (interpreters.next()) |interpreter| {
         defer interpreter.deinit();
+
+        if (!interpreter.value.has_ensurepip) {
+            continue;
+        }
 
         if (seen.contains(interpreter.value.realpath)) {
             log.debug(

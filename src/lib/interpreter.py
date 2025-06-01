@@ -45,6 +45,13 @@ def identify(supported_tags):
     # type: (Iterable[Tuple[str, str, str]]) -> Dict[str, Any]
 
     implementation_name, implementation_version = implementation_name_and_version()
+
+    has_ensurepip = True
+    try:
+        import ensurepip  # noqa: F401
+    except ImportError:
+        has_ensurepip = False
+
     return {
         "path": sys.executable,
         "realpath": os.path.realpath(sys.executable),
@@ -73,6 +80,7 @@ def identify(supported_tags):
         },
         "macos_framework_build": bool(sysconfig.get_config_vars().get("PYTHONFRAMEWORK")),
         "supported_tags": ["-".join(tag) for tag in supported_tags],
+        "has_ensurepip": has_ensurepip,
     }
 
 

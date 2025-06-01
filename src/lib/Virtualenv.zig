@@ -162,6 +162,14 @@ pub fn create(
 
     const base_interpreter = if (resolved_base_interpreter) |interp| interp.value else interpreter;
 
+    if (options.include_pip and !base_interpreter.has_ensurepip) {
+        log.err(
+            "Pip was requested for venv at {s} using {s} but resolved interpreter {s} has " ++
+                "no `ensurepip` module.",
+            .{ dest_path, interpreter.path, base_interpreter.path },
+        );
+        return error.PipUnavailableError;
+    }
     const venv_python_relpath = try Self.createInterpreterRelpath(allocator);
     errdefer allocator.free(venv_python_relpath);
 
@@ -242,7 +250,7 @@ pub fn create(
             }
         };
 
-        // TODO: XXX: If no ensurepip module, dowload a pip .pyz and install that way.
+        // TODO: XXX: If no ensurepip module, download a pip .pyz and install that way.
         const args: []const []const u8 = if (base_interpreter.version.major < 3) &.{
             venv_python_relpath,
             "-m",
