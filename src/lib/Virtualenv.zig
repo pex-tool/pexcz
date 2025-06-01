@@ -245,26 +245,6 @@ pub fn create(
 
     if (options.include_pip) {
         const CheckInstall = struct {
-            pub fn parse(result: subprocess.RunResult) !void {
-                switch (result.term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            std.debug.print(
-                                "The attempt to ensurepip errored with code {d} {}.",
-                                .{ code, result.term },
-                            );
-                            return error.CalledProcessError;
-                        }
-                    },
-                    else => {
-                        std.debug.print(
-                            "The attempt to ensurepip errored with code {}.",
-                            .{result.term},
-                        );
-                        return error.CalledProcessError;
-                    },
-                }
-            }
             pub fn printError() void {
                 std.debug.print("Failed to install Pip in venv\n", .{});
             }
@@ -279,7 +259,7 @@ pub fn create(
         try subprocess.run(
             allocator,
             args,
-            CheckInstall,
+            subprocess.CheckCall(CheckInstall.printError),
             .{
                 .extra_child_run_args = .{ .cwd = dest_path, .cwd_dir = dest_dir },
             },

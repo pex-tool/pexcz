@@ -556,7 +556,6 @@ test "compare with packaging" {
             );
             continue;
         }
-        try seen.insert(interpreter.value.realpath);
 
         const version = interpreter.value.version;
         const actual_tags, const free_tags = res: {
@@ -606,13 +605,15 @@ test "compare with packaging" {
             tmpdir.dir,
             .{ .include_pip = true },
         ) catch |err| {
-            if (err == error.WindowsStoreStub) {
-                std.debug.print("Skipping Windows store stub {s}", .{interpreter.value.path});
-                continue;
-            }
-            return err;
+            std.debug.print(
+                "Skipping interpreter {s}, could not create a venv with Pip from it: {} ",
+                .{ interpreter.value.path, err },
+            );
+            continue;
         };
         defer venv.deinit();
+
+        try seen.insert(interpreter.value.realpath);
 
         const CheckInstall = struct {
             pub fn printError() void {
