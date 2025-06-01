@@ -1,5 +1,8 @@
 # PexCZ
 
+[![Github Actions CI](https://github.com/pex-tool/pexcz/actions/workflows/ci.yml/badge.svg)](
+https://github.com/pex-tool/pexcz/actions/workflows/ci.yml)
+
 A native runtime bootstrap for PEXes.
 
 > [!WARNING]  
