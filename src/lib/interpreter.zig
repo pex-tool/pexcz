@@ -609,16 +609,34 @@ test "compare with packaging" {
         defer venv.deinit();
 
         const CheckInstall = struct {
+            pub fn parse(result: subprocess.RunResult) !void {
+                switch (result.term) {
+                    .Exited => |code| {
+                        if (native_os == .windows and code == 9009) {
+                            return error.WindowsStoreStub;
+                        } else if (code != 0) {
+                            return error.CalledProcessError;
+                        }
+                    },
+                    else => return error.CalledProcessError,
+                }
+            }
             pub fn printError() void {
                 std.debug.print("Failed to install packaging.\n", .{});
             }
         };
-        try subprocess.run(
+        subprocess.run(
             std.testing.allocator,
             &.{ venv.interpreter_relpath, "-m", "pip", "install", "packaging" },
-            subprocess.CheckCall(CheckInstall.printError),
+            CheckInstall,
             .{ .extra_child_run_args = .{ .cwd = venv.path, .cwd_dir = venv.dir } },
-        );
+        ) catch |err| {
+            if (err == error.WindowsStoreStub) {
+                std.debug.print("Skipping Windows store stub {s}", .{interpreter.value.path});
+                continue;
+            }
+            return err;
+        };
 
         const CheckQuery = struct {
             pub fn printError() void {
