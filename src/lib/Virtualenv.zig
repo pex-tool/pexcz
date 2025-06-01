@@ -244,9 +244,21 @@ pub fn create(
     try pyvenv_cfg.writeAll(pyvenv_cfg_contents);
 
     if (options.include_pip) {
-        const CheckCall = struct {
+        const CheckInstall = struct {
+            pub fn parse(result: subprocess.RunResult) !void {
+                switch (result.term) {
+                    .Exited => |code| {
+                        if (native_os == .windows and code == 9009) {
+                            return error.WindowsStoreStub;
+                        } else if (code != 0) {
+                            return error.CalledProcessError;
+                        }
+                    },
+                    else => return error.CalledProcessError,
+                }
+            }
             pub fn printError() void {
-                std.debug.print("Failed to install Pip in venv.\n", .{});
+                std.debug.print("Failed to install Pip in venv\n", .{});
             }
         };
 
@@ -259,7 +271,7 @@ pub fn create(
         try subprocess.run(
             allocator,
             args,
-            subprocess.CheckCall(CheckCall.printError),
+            CheckInstall,
             .{
                 .extra_child_run_args = .{ .cwd = dest_path, .cwd_dir = dest_dir },
             },
