@@ -73,7 +73,7 @@ fn writeZstdZip(source_zip: *Zip, compression_level: c.zip_uint32_t) !Zip {
 
 pub fn main() !void {
     var allocator = Allocator.init();
-    defer allocator.deinit();
+    errdefer _ = allocator.deinit();
 
     const alloc = allocator.allocator();
 
@@ -140,4 +140,7 @@ pub fn main() !void {
     std.debug.print("Extract zstd PEX parallel took {d:.3}ms.\n", .{timer.lap() / 1_000_000});
 
     std.debug.print("Used {d} bytes.\n", .{allocator.bytesUsed()});
+    if (allocator.deinit() != .ok) {
+        return error.MemoryLeak;
+    }
 }

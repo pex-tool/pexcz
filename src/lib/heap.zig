@@ -14,9 +14,8 @@ const Debug = struct {
         return .{ .debug_allocator = DebugAllocator.init };
     }
 
-    pub fn deinit(self: *Self) void {
-        const check = self.debug_allocator.deinit();
-        std.debug.assert(check == .ok);
+    pub fn deinit(self: *Self) std.heap.Check {
+        return self.debug_allocator.deinit();
     }
 
     pub fn allocator(self: *Self) std.mem.Allocator {
@@ -39,8 +38,9 @@ const Arena = struct {
         ) };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self) std.heap.Check {
         self.arena.deinit();
+        return .ok;
     }
 
     pub fn allocator(self: *Self) std.mem.Allocator {

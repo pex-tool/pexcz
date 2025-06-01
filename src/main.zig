@@ -31,7 +31,7 @@ const __main__: []const u8 = @embedFile("python/pexcz/__init__.py");
 
 const log = std.log.scoped(.pexcz);
 
-fn help(prog: []const u8) noreturn {
+fn help(prog: []const u8) void {
     std.debug.print(
         \\Usage: {s} --help | inject <PEX>
         \\
@@ -43,10 +43,9 @@ fn help(prog: []const u8) noreturn {
     ,
         .{prog},
     );
-    std.process.exit(0);
 }
 
-fn usage(prog: []u8, message: []const u8) noreturn {
+fn usage(prog: []u8, message: []const u8) u8 {
     std.debug.print(
         \\Usage: {s} --help | inject <PEX>
         \\
@@ -54,7 +53,7 @@ fn usage(prog: []u8, message: []const u8) noreturn {
     ,
         .{ prog, message },
     );
-    std.process.exit(1);
+    return 1;
 }
 
 const CompressionOptions = struct {
@@ -266,7 +265,13 @@ fn inject(
 
     var progress_ctx: ProgressContext = .{ .progress = &progress, .total_items = pex.num_entries };
     const precision: f64 = 1.0 / @as(f64, @floatFromInt(pex.num_entries));
-    _ = c.zip_register_progress_callback_with_state(czex.handle, precision, record_progress, null, &progress_ctx);
+    _ = c.zip_register_progress_callback_with_state(
+        czex.handle,
+        precision,
+        record_progress,
+        null,
+        &progress_ctx,
+    );
     czex.deinit();
 
     var czex_file = try std.fs.cwd().openFileZ(czex.path, .{});
@@ -285,23 +290,31 @@ fn inject(
     // TODO(John Sirois): XXX: handle __pex__/ import hook
 }
 
-pub fn main() !void {
+const BootResult = enum(c_int) {
+    boot_error = 75,
+    _,
+};
+
+pub fn main() !u8 {
     var alloc = Allocator.init();
-    defer alloc.deinit();
+    errdefer _ = alloc.deinit();
     const allocator = alloc.allocator();
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
     const prog = args[0];
+    var result: u8 = 0;
     for (args[1..], 1..) |arg, i| {
         if (std.mem.eql(u8, "-h", arg) or std.mem.eql(u8, "--help", arg)) {
             help(prog);
+            break;
         } else if (std.mem.eql(u8, "inject", arg)) {
             if (args.len <= i + 1) {
-                usage(prog, "The inject subcommand requires a PEX file argument.");
+                result = usage(prog, "The inject subcommand requires a PEX file argument.");
+                break;
             } else if (args.len > i + 2) {
-                usage(
+                result = usage(
                     prog,
                     try std.fmt.allocPrint(
                         allocator,
@@ -311,14 +324,24 @@ pub fn main() !void {
                         .{try std.mem.join(allocator, " ", args[i + 2 ..])},
                     ),
                 );
+                break;
             }
 
             try inject(allocator, args[i + 1]);
             std.process.exit(0);
         } else {
-            usage(prog, try std.fmt.allocPrint(allocator, "Unexpected argument: {s}", .{arg}));
+            result = usage(
+                prog,
+                try std.fmt.allocPrint(allocator, "Unexpected argument: {s}", .{arg}),
+            );
+            break;
         }
     } else {
         help(prog);
+    }
+    if (alloc.deinit() != .ok) {
+        return @intFromEnum(BootResult.boot_error);
+    } else {
+        return result;
     }
 }

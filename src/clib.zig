@@ -38,15 +38,26 @@ fn bootWindows(
     );
 
     var alloc = pexcz.Allocator.init();
-    defer alloc.deinit();
+    errdefer _ = alloc.deinit();
 
-    return pexcz.bootPexZWindows(&alloc, &timer, python, pex, pexcz.sliceZ(argv)) catch |err| {
+    const result = pexcz.bootPexZWindows(
+        &alloc,
+        &timer,
+        python,
+        pex,
+        pexcz.sliceZ(argv),
+    ) catch |err| res: {
         log.err(
             "Failed to boot {[pex]s} using {[python]s}: {[err]}\n",
             .{ .pex = pex, .python = python, .err = err },
         );
-        return @intFromEnum(BootResult.boot_error);
+        break :res @intFromEnum(BootResult.boot_error);
     };
+    if (alloc.deinit() != .ok) {
+        return @intFromEnum(BootResult.boot_error);
+    } else {
+        return result;
+    }
 }
 
 fn bootPosix(
@@ -62,17 +73,29 @@ fn bootPosix(
     );
 
     var alloc = pexcz.Allocator.init();
-    defer alloc.deinit();
+    errdefer alloc.deinit();
 
     const environ = if (!builtin.link_libc) pexcz.Environ{
         .envp = envp,
     } else null;
 
-    return pexcz.bootPexZPosix(&alloc, &timer, python, pex, environ, pexcz.sliceZ(argv)) catch |err| {
+    const result = pexcz.bootPexZPosix(
+        &alloc,
+        &timer,
+        python,
+        pex,
+        environ,
+        pexcz.sliceZ(argv),
+    ) catch |err| res: {
         log.err(
             "Failed to boot {[pex]s} using {[python]s}: {[err]}",
             .{ .pex = pex, .python = python, .err = err },
         );
-        return @intFromEnum(BootResult.boot_error);
+        break :res @intFromEnum(BootResult.boot_error);
     };
+    if (alloc.deinit() != .ok) {
+        return @intFromEnum(BootResult.boot_error);
+    } else {
+        return result;
+    }
 }
