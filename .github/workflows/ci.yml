@@ -86,11 +86,6 @@ jobs:
     steps:
       - name: Checkout pexcz
         uses: actions/checkout@v4
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          activate-environment: 'true'
-          python-version: ${{ matrix.python-version }}
       - name: Install Python
         if: matrix.os == 'windows-11-arm'
         uses: actions/setup-python@v5
@@ -99,6 +94,11 @@ jobs:
       - name: Configure Python
         if: matrix.os == 'windows-11-arm'
         run: echo "UV_NO_MANAGED_PYTHON=1" >> "${GITHUB_ENV}"
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          activate-environment: 'true'
+          python-version: ${{ matrix.python-version }}
       - name: Run CI checks
         run: uv run dev-cmd --color always --timings --skip zig-check-fmt ci -- -vvs
 
