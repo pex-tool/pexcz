@@ -330,6 +330,9 @@ pub const Interpreter = struct {
 
     pub fn resolve_base_interpreter(self: Self, allocator: std.mem.Allocator) !?std.json.Parsed(Self) {
         if (self.base_prefix) |base_prefix| {
+            if (std.mem.eql(u8, base_prefix, self.prefix)) {
+                return null;
+            }
             const path = res: {
                 if (native_os == .windows) {
                     break :res try std.fs.path.join(

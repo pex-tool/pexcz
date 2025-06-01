@@ -14,6 +14,7 @@ const log = std.log.scoped(.boot);
 
 pub fn bootPexZWindows(
     alloc: anytype,
+    timer: *?std.time.Timer,
     python_exe_path: [*:0]const u8,
     pex_path: [*:0]const u8,
     argv: [][*:0]u8,
@@ -22,6 +23,9 @@ pub fn bootPexZWindows(
 
     const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
     defer boot_spec.deinit();
+    if (timer.*) |*elapsed| {
+        log.debug("Calculate boot spec took {d:.3}µs", .{elapsed.read() / 1_000});
+    }
 
     const child_argv: []const []const u8 = res: {
         if (argv.len > 2) {
@@ -39,15 +43,14 @@ pub fn bootPexZWindows(
         }
     };
     defer if (child_argv.len > 2) allocator.free(child_argv);
+    if (timer.*) |*elapsed| log.debug("Create argv took {d:.3}µs", .{elapsed.read() / 1_000});
 
-    var env_map = try std.process.getEnvMap(allocator);
-    defer env_map.deinit();
-
-    try env_map.put("VIRTUAL_ENV", std.mem.span(boot_spec.venv_path));
-
+    log.debug("Bytes used: {d}", .{alloc.bytesUsed()});
+    if (timer.*) |*elpased| log.debug(
+        "C boot({s}, {s}, ...) pre-exec took {d:.3}µs",
+        .{ python_exe_path, pex_path, elpased.read() / 1_000 },
+    );
     var process = std.process.Child.init(child_argv, allocator);
-    process.env_map = &env_map;
-
     switch (try process.spawnAndWait()) {
         .Exited => |code| return code,
         .Signal => |_| return -1, // -1 * sig,

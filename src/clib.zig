@@ -38,12 +38,9 @@ fn bootWindows(
     );
 
     var alloc = pexcz.Allocator.init();
-    defer {
-        log.info("Bytes used: {d}", .{alloc.bytesUsed()});
-        alloc.deinit();
-    }
+    defer alloc.deinit();
 
-    return pexcz.bootPexZWindows(&alloc, python, pex, pexcz.sliceZ(argv)) catch |err| {
+    return pexcz.bootPexZWindows(&alloc, &timer, python, pex, pexcz.sliceZ(argv)) catch |err| {
         log.err(
             "Failed to boot {[pex]s} using {[python]s}: {[err]}\n",
             .{ .pex = pex, .python = python, .err = err },
