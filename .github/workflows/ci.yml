@@ -95,7 +95,7 @@ jobs:
         with:
           activate-environment: 'true'
           python-version: ${{ matrix.python-version }}
-      - namd: Install cURL
+      - name: Install cURL
         if: matrix.os == 'windows-2025' || matrix.os == 'windows-11-arm'
         run: choco install curl
       - name: Run CI checks
