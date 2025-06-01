@@ -248,13 +248,21 @@ pub fn create(
             pub fn parse(result: subprocess.RunResult) !void {
                 switch (result.term) {
                     .Exited => |code| {
-                        if (native_os == .windows and code == 9009) {
-                            return error.WindowsStoreStub;
-                        } else if (code != 0) {
+                        if (code != 0) {
+                            std.debug.print(
+                                "The attempt to ensurepip errored with code {d} {}.",
+                                .{ code, result.term },
+                            );
                             return error.CalledProcessError;
                         }
                     },
-                    else => return error.CalledProcessError,
+                    else => {
+                        std.debug.print(
+                            "The attempt to ensurepip errored with code {}.",
+                            .{result.term},
+                        );
+                        return error.CalledProcessError;
+                    },
                 }
             }
             pub fn printError() void {
