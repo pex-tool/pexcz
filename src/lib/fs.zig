@@ -53,7 +53,7 @@ fn tempDirRoot(allocator: std.mem.Allocator) !TempDirRoot {
         }
     };
     for (&paths) |path| {
-        if (std.fs.accessAbsolute(path, .{ .mode = .read_write })) |_| {
+        if (std.fs.cwd().access(path, .{ .mode = .read_write })) |_| {
             return .{ .path = path };
         } else |_| {}
     }
