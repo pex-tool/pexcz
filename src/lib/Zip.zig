@@ -94,7 +94,7 @@ pub fn extractToSlice(
         return buffer;
     } else {
         var buffer = std.ArrayList(u8).init(allocator);
-        errdefer allocator.free(buffer);
+        errdefer buffer.deinit();
 
         try self.extractIndexToWriter(@intCast(index), std.mem.span(name), buffer.writer());
         return try buffer.toOwnedSlice();
