@@ -30,10 +30,10 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: "${{ env._PEXCZ_ZIG_VERSION }}"
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v6
       - name: Checkout pexcz
         uses: actions/checkout@v4
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v6
       - name: Cross Build
         run: zig build -Dtargets=All --release=small
   check-zig-fmt:
