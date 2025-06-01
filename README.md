@@ -156,5 +156,6 @@ N.B,.: The ideas developed in this repo, once proved out, will likely move into 
 least used by the Pex CLI tool to replace the current pure-Python PEX bootstrap runtime.
 
 [^1]: Pexcz is powered via `__main__.py` using ctypes to hand off boot duties to a native library
-written in Zig; thus the `cz`. Since cz brings to mind Czechia (their TLD is .cz), in english at
-least, CZEX is pronounced "chex" as in Chex mix. Mix a little CZEX into your PEX and profit.
+written in Zig; thus the `cz`. Since cz brings to mind Czechia (their TLD is .cz), in English at
+least, CZEX is pronounced "chex" as in [Chex Mix](https://www.chex.com/recipes/original-chex-mix).
+Mix a little CZEX into your PEX and it's party time.
