@@ -84,6 +84,10 @@ jobs:
           - os: windows-11-arm
             python-version: '3.13'
     steps:
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "${{ env._PEXCZ_ZIG_VERSION }}"
       - name: Checkout pexcz
         uses: actions/checkout@v4
       - name: Install the latest version of uv
@@ -91,6 +95,9 @@ jobs:
         with:
           activate-environment: 'true'
           python-version: ${{ matrix.python-version }}
+      - namd: Install cURL
+        if: matrix.os == 'windows-2025' || matrix.os == 'windows-11-arm'
+        run: choco install curl
       - name: Run CI checks
         run: uv run dev-cmd --color always --timings --skip zig-check-fmt ci -- -vvs
 
