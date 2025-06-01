@@ -3,7 +3,13 @@ const builtin = @import("builtin");
 
 const Debug = struct {
     const DebugAllocator = std.heap.DebugAllocator(
-        .{ .safety = true, .verbose_log = true, .enable_memory_limit = true },
+        .{
+            .safety = true,
+            .verbose_log = true,
+            .enable_memory_limit = true,
+            .stack_trace_frames = if (std.debug.sys_can_stack_trace) 10 else 0,
+            .resize_stack_traces = true,
+        },
     );
 
     debug_allocator: DebugAllocator,
