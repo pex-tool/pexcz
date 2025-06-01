@@ -501,6 +501,8 @@ fn writeMain(
             break :env_res "";
         }
         var inject_env_buf = std.ArrayList(u8).init(allocator);
+        errdefer inject_env_buf.deinit();
+
         var inject_env_writer = inject_env_buf.writer();
         var entry_iter = self.pex_info.inject_env.map.iterator();
         while (entry_iter.next()) |entry| {
@@ -519,6 +521,8 @@ fn writeMain(
             break :args_res "";
         }
         var inject_args_buf = std.ArrayList(u8).init(allocator);
+        errdefer inject_args_buf.deinit();
+
         var inject_args_writer = inject_args_buf.writer();
         for (self.pex_info.inject_args) |arg| {
             try inject_args_writer.writeAll("r\"");
@@ -530,6 +534,7 @@ fn writeMain(
     defer if (inject_args.len > 0) allocator.free(inject_args);
 
     var entry_point: ?[]const u8 = null;
+    defer if (entry_point) |ep| allocator.free(ep);
     if (self.pex_info.entry_point) |ep| {
         entry_point = try std.mem.join(allocator, ep, &.{ "r\"", "\"" });
     }
