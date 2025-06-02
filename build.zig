@@ -1,14 +1,13 @@
 const std = @import("std");
 
-// TODO: XXX: Uncomment musl variants and arm (32 bit). There are currently issues building
-//  libzip / zstd / zlib.
+// TODO: XXX: Uncomment musl variants. There are currently issues building libzip / zstd / zlib.
 const supported_targets: []const std.Target.Query = &.{
     // Linux targets:
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
     // .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
-    // .{ .cpu_arch = .arm, .os_tag = .linux },
+    .{ .cpu_arch = .s390x, .os_tag = .linux, .abi = .gnu },
+    .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .gnueabihf },
     .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .gnu },
-    // .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
     // .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
     // Macos targets:
