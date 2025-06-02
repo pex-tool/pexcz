@@ -5,7 +5,7 @@ const supported_targets: []const std.Target.Query = &.{
     // Linux targets:
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
     // .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
-    .{ .cpu_arch = .s390x , .os_tag = .linux, .abi = .gnu },
+    .{ .cpu_arch = .s390x, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .gnueabihf },
     .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
