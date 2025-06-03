@@ -12,8 +12,8 @@
             .hash = "known_folders-0.0.0-Fy-PJtLDAADGDOwYwMkVydMSTp_aN-nfjCZw6qPQ2ECL",
         },
         .libzip = .{
-            .url = "git+https://github.com/nih-at/libzip#6f8a0cdd24a0dc6cce9dac4a7679da784ab124ea",
-            .hash = "N-V-__8AAAbuXwAhfcgJ1l6sOGbczRZijBbchrr34QlkpykE",
+            .url = "git+https://github.com/jsirois/libzip#173513102e270d65234c3613b16c67f901058052",
+            .hash = "N-V-__8AAGRUYABUylxlPgK8vgvvxVLufaQalXyPsIKYJRMw",
         },
         .zlib = .{
             .url = "git+https://github.com/allyourcodebase/zlib#6c72830882690c1eb2567a537525c3f432c1da50",

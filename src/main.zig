@@ -84,12 +84,9 @@ fn setEntryMtime(pex: *Zip, entry_index: c.zip_uint64_t, entry_name: []const u8)
 
 fn transferEntries(
     source_pex: *Zip,
-    dest_pex_path: [*c]const u8,
+    dest_pex: *Zip,
     options: CompressionOptions,
-) !Zip {
-    var dest_pex = try Zip.init(dest_pex_path, .{ .mode = .truncate });
-    errdefer dest_pex.deinit();
-
+) !void {
     next_entry: for (0..source_pex.num_entries) |index| {
         const entry_name = std.mem.span(c.zip_get_name(
             source_pex.handle,
@@ -118,7 +115,7 @@ fn transferEntries(
                 );
                 return error.ZipEntryAddDirectoryError;
             }
-            try setEntryMtime(&dest_pex, @intCast(dest_idx), entry_name);
+            try setEntryMtime(dest_pex, @intCast(dest_idx), entry_name);
             continue;
         }
 
@@ -153,7 +150,7 @@ fn transferEntries(
             );
             return error.ZipEntryAddFileError;
         }
-        try setEntryMtime(&dest_pex, @intCast(dest_idx), entry_name);
+        try setEntryMtime(dest_pex, @intCast(dest_idx), entry_name);
         if (retain_original_compression) {
             continue;
         }
@@ -172,7 +169,6 @@ fn transferEntries(
             return error.ZipEntrySetCompressionZstdError;
         }
     }
-    return dest_pex;
 }
 
 fn embedLibs(pex: *Zip) !void {
@@ -233,9 +229,35 @@ fn inject(
     };
     defer allocator.free(czex_path);
 
-    var czex = try transferEntries(&pex, czex_path, .{ .method = .zstd, .level = 3 });
+    var czex = try Zip.init(czex_path, .{ .mode = .truncate });
     errdefer czex.deinit();
 
+    const prefix_data: ?[]const u8 = res: {
+        const prefix = c.zip_get_archive_prefix(pex.handle);
+        if (prefix == 0) {
+            break :res null;
+        }
+
+        const buffer = try allocator.alloc(u8, prefix);
+        var source_pex_file = try std.fs.cwd().openFileZ(pex.path, .{});
+        defer source_pex_file.close();
+
+        var source_pex_fp = std.io.bufferedReader(source_pex_file.reader());
+        const read_amount = try source_pex_fp.reader().readAll(buffer);
+        std.debug.assert(read_amount == buffer.len);
+
+        if (c.zip_set_archive_prefix(czex.handle, buffer.ptr, buffer.len) != 0) {
+            log.err(
+                "Failed to set Pex shebang prefix on {s}: {s}",
+                .{ czex.path, c.zip_strerror(czex.handle) },
+            );
+            return error.ZipAddPrefixError;
+        }
+        break :res buffer;
+    };
+    defer if (prefix_data) |data| allocator.free(data);
+
+    try transferEntries(&pex, &czex, .{ .method = .zstd, .level = 3 });
     try embedLibs(&czex);
 
     const src = c.zip_source_buffer(czex.handle, __main__.ptr, __main__.len, 0) orelse {
