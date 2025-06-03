@@ -237,8 +237,11 @@ fn inject(
         if (prefix == 0) {
             break :res null;
         }
+        if (prefix > std.math.maxInt(usize)) {
+            return error.ZipPrefixTooBig;
+        }
+        const buffer = try allocator.alloc(u8, @intCast(prefix));
 
-        const buffer = try allocator.alloc(u8, prefix);
         var source_pex_file = try std.fs.cwd().openFileZ(pex.path, .{});
         defer source_pex_file.close();
 
