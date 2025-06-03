@@ -48,7 +48,7 @@ fn bootWindows(
         pexcz.sliceZ(argv),
     ) catch |err| res: {
         log.err(
-            "Failed to boot {[pex]s} using {[python]s}: {[err]}\n",
+            "Failed to boot {[pex]s} using {[python]s}: {[err]}",
             .{ .pex = pex, .python = python, .err = err },
         );
         break :res @intFromEnum(BootResult.boot_error);
