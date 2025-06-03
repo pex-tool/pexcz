@@ -61,6 +61,39 @@ const CompressionOptions = struct {
     level: i8 = 0,
 };
 
+fn setZipPrefix(allocator: std.mem.Allocator, pex: *Zip, czex: *Zip) !?[]const u8 {
+    const prefix = c.zip_get_archive_prefix(pex.handle);
+    if (prefix == 0) {
+        return null;
+    }
+    if (prefix > std.math.maxInt(usize)) {
+        log.err(
+            "The zip prefix for {s} is {d} bytes which is too large for this system " ++
+                "to process: {s}",
+            .{ czex.path, prefix, c.zip_strerror(czex.handle) },
+        );
+        return error.ZipPrefixTooBig;
+    }
+    const buffer = try allocator.alloc(u8, @intCast(prefix));
+    errdefer allocator.free(buffer);
+
+    var source_pex_file = try std.fs.cwd().openFileZ(pex.path, .{});
+    defer source_pex_file.close();
+
+    var source_pex_fp = std.io.bufferedReader(source_pex_file.reader());
+    const read_amount = try source_pex_fp.reader().readAll(buffer);
+    std.debug.assert(read_amount == buffer.len);
+
+    if (c.zip_set_archive_prefix(czex.handle, buffer.ptr, buffer.len) != 0) {
+        log.err(
+            "Failed to set Pex shebang prefix on {s}: {s}",
+            .{ czex.path, c.zip_strerror(czex.handle) },
+        );
+        return error.ZipAddPrefixError;
+    }
+    return buffer;
+}
+
 fn setEntryMtime(pex: *Zip, entry_index: c.zip_uint64_t, entry_name: []const u8) !void {
     const res = c.zip_file_set_dostime(
         pex.handle,
@@ -232,32 +265,7 @@ fn inject(
     var czex = try Zip.init(czex_path, .{ .mode = .truncate });
     errdefer czex.deinit();
 
-    const prefix_data: ?[]const u8 = res: {
-        const prefix = c.zip_get_archive_prefix(pex.handle);
-        if (prefix == 0) {
-            break :res null;
-        }
-        if (prefix > std.math.maxInt(usize)) {
-            return error.ZipPrefixTooBig;
-        }
-        const buffer = try allocator.alloc(u8, @intCast(prefix));
-
-        var source_pex_file = try std.fs.cwd().openFileZ(pex.path, .{});
-        defer source_pex_file.close();
-
-        var source_pex_fp = std.io.bufferedReader(source_pex_file.reader());
-        const read_amount = try source_pex_fp.reader().readAll(buffer);
-        std.debug.assert(read_amount == buffer.len);
-
-        if (c.zip_set_archive_prefix(czex.handle, buffer.ptr, buffer.len) != 0) {
-            log.err(
-                "Failed to set Pex shebang prefix on {s}: {s}",
-                .{ czex.path, c.zip_strerror(czex.handle) },
-            );
-            return error.ZipAddPrefixError;
-        }
-        break :res buffer;
-    };
+    const prefix_data: ?[]const u8 = try setZipPrefix(allocator, &pex, &czex);
     defer if (prefix_data) |data| allocator.free(data);
 
     try transferEntries(&pex, &czex, .{ .method = .zstd, .level = 3 });
