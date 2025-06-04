@@ -103,8 +103,8 @@ args = ["python", "-m", "ziglang"]
 accepts-extra-args = true
 
 [tool.dev-cmd.commands.package]
-env = {"PEXCZ_BUILD_TARGETS" = "All", "PEXCZ_RELEASE_MODE" = "fast"}
-args = ["uv", "build"]
+args = ["scripts/package.py"]
+accepts-extra-args = true
 
 [tool.dev-cmd.tasks]
 test = [["zig-test", "pytest"]]

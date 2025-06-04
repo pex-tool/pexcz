@@ -1,0 +1,91 @@
+name: Release
+on:
+  push:
+    tags:
+      - v[0-9]+.[0-9]+.[0-9]+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to manually run a deploy for.
+        required: true
+env:
+  _PEXCZ_ZIG_VERSION: 0.14.1
+  _PEXCZ_BUILD_FETCH_VIRTUALENV_BEARER: ${{ secrets.GITHUB_TOKEN }}
+jobs:
+  org-check:
+    name: Check GitHub Organization
+    if: ${{ github.repository_owner == 'pex-tool' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Noop
+        if: false
+        run: |
+          echo "This is a dummy step that will never run."
+  determine-tag:
+    name: Determine the release tag to operate against.
+    needs: org-check
+    runs-on: ubuntu-24.04
+    outputs:
+      release-tag: ${{ steps.determine-tag.outputs.release-tag }}
+      release-version: ${{ steps.determine-tag.outputs.release-version }}
+    steps:
+      - name: Determine Tag
+        id: determine-tag
+        run: |
+          if [[ -n "${{ github.event.inputs.tag }}" ]]; then
+            RELEASE_TAG=${{ github.event.inputs.tag }}
+          else
+            RELEASE_TAG=${GITHUB_REF#refs/tags/}
+          fi
+          if [[ "${RELEASE_TAG}" =~ ^v[0-9]+.[0-9]+.[0-9]+$ ]]; then
+            echo "release-tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+            echo "release-version=${RELEASE_TAG#v}" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Release tag '${RELEASE_TAG}' must match 'v\d+.\d+.\d+'."
+            exit 1
+          fi
+  github-release:
+    name: Create Github Release
+    needs: determine-tag
+    runs-on: ubuntu-24.04
+    environment: Release
+    permissions:
+      id-token: write
+      attestations: write
+      contents: write
+      discussions: write
+    steps:
+      - name: Checkout Pexcz ${{ needs.determine-tag.outputs.release-tag }}
+        uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Package Pexcz ${{ needs.determine-tag.outputs.release-tag }} Binary
+        run: uv run dev-cmd package
+      - name: Generate Pexcz ${{ needs.determine-tag.outputs.release-tag }} Artifact Attestations
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            dist/pexcz*
+      - name: Prepare Changelog
+        id: prepare-changelog
+        uses: a-scie/actions/changelog@v1.6
+        with:
+          changelog-file: ${{ github.workspace }}/CHANGES.md
+          version: ${{ needs.determine-tag.outputs.release-version }}
+      - name: Append Hashes to Changelog
+        run: |
+          changelog_tmp="$(mktemp)"
+          cat "${{ steps.prepare-changelog.outputs.changelog-file }}" <(echo '***') dist/hashes.md \
+            > "${changelog_tmp}"
+          mv "${changelog_tmp}" "${{ steps.prepare-changelog.outputs.changelog-file }}"
+      - name: Create ${{ needs.determine-tag.outputs.release-tag }} Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.determine-tag.outputs.release-tag }}
+          name: pexcz ${{ needs.determine-tag.outputs.release-version }}
+          body_path: ${{ steps.prepare-changelog.outputs.changelog-file }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/pexcz*
+          fail_on_unmatched_files: true

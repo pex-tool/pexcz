@@ -19,6 +19,8 @@ const supported_targets: []const std.Target.Query = &.{
 };
 
 pub fn build(b: *std.Build) !void {
+    const benches = b.option(bool, "benches", "Build benchmarking executables.") orelse false;
+
     const Targets = enum {
         All,
         Current,
@@ -128,21 +130,23 @@ pub fn build(b: *std.Build) !void {
             }
             const run_step = b.step("run", "Run the app");
             run_step.dependOn(&run_cmd.step);
-        }
 
-        const zip_exe = b.addExecutable(.{
-            .name = "zipopen",
-            .root_module = b.addModule("zipopen", .{
-                .root_source_file = b.path("bench/zipopen.zig"),
-                .target = rt,
-                .optimize = optimize,
-            }),
-        });
-        zip_exe.root_module.addImport("pexcz", lib);
-        zip_exe.linkLibC();
-        const zip_exe_output = b.addInstallArtifact(zip_exe, .{});
-        zip_exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, zip_exe_output.dest_sub_path });
-        b.getInstallStep().dependOn(&zip_exe_output.step);
+            if (benches) {
+                const zip_exe = b.addExecutable(.{
+                    .name = "zipopen",
+                    .root_module = b.addModule("zipopen", .{
+                        .root_source_file = b.path("bench/zipopen.zig"),
+                        .target = rt,
+                        .optimize = optimize,
+                    }),
+                });
+                zip_exe.root_module.addImport("pexcz", lib);
+                zip_exe.linkLibC();
+                const zip_exe_output = b.addInstallArtifact(zip_exe, .{});
+                zip_exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, zip_exe_output.dest_sub_path });
+                b.getInstallStep().dependOn(&zip_exe_output.step);
+            }
+        }
     }
 
     // Creates a step for unit testing. This only builds the test executable
