@@ -386,12 +386,14 @@ test "Export PEX env var" {
     var tmp_dir = std.testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    var exe_py = try tmp_dir.dir.createFile("exe.py", .{});
-    defer exe_py.close();
+    var exe_py: ?std.fs.File = try tmp_dir.dir.createFile("exe.py", .{});
+    defer if (exe_py) |fp| fp.close();
 
-    var exe_py_fp = std.io.bufferedWriter(exe_py.writer());
+    var exe_py_fp = std.io.bufferedWriter(exe_py.?.writer());
     try exe_py_fp.writer().writeAll("import os; print(os.environ[\"PEX\"])");
     try exe_py_fp.flush();
+    exe_py.?.close();
+    exe_py = null;
 
     const create_pex_result = try std.process.Child.run(.{
         .allocator = std.testing.allocator,
