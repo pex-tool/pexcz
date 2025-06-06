@@ -408,7 +408,14 @@ test "Export PEX env var" {
     });
     defer std.testing.allocator.free(create_pex_result.stdout);
     defer std.testing.allocator.free(create_pex_result.stderr);
-    try std.testing.expectEqualDeep(std.process.Child.Term{ .Exited = 0 }, create_pex_result.term);
+    std.testing.expectEqualDeep(
+        std.process.Child.Term{ .Exited = 0 },
+        create_pex_result.term,
+    ) catch |err| {
+        std.debug.print("Create PEX failed with {}", .{create_pex_result.term});
+        std.debug.print("STDERR:\n{s}\n", .{create_pex_result.stderr});
+        return err;
+    };
 
     const execute_pex_result = try std.process.Child.run(.{
         .allocator = std.testing.allocator,
@@ -418,7 +425,10 @@ test "Export PEX env var" {
     });
     defer std.testing.allocator.free(execute_pex_result.stdout);
     defer std.testing.allocator.free(execute_pex_result.stderr);
-    try std.testing.expectEqualDeep(std.process.Child.Term{ .Exited = 0 }, execute_pex_result.term);
+    try std.testing.expectEqualDeep(
+        std.process.Child.Term{ .Exited = 0 },
+        execute_pex_result.term,
+    );
 
     const expected_pex_env_var_value = try tmp_dir.dir.realpathAlloc(
         std.testing.allocator,
