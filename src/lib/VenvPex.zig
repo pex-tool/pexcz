@@ -362,6 +362,36 @@ fn installWheels(
     }
 }
 
+fn installUserCode(
+    allocator: std.mem.Allocator,
+    zip: *Zip,
+    venv: *const Virtualenv,
+    work_path: []const u8,
+) !void {
+    const dest_dir_path = try std.fs.path.join(
+        allocator,
+        &.{ work_path, venv.site_packages_relpath.value },
+    );
+    defer allocator.free(dest_dir_path);
+
+    const SkipNonUserCode = struct {
+        pub fn shouldExtract(_: void, name: []const u8) bool {
+            for ([_][]const u8{ "__main__.py", "PEX-INFO" }) |skip| {
+                if (std.mem.eql(u8, name, skip)) {
+                    return false;
+                }
+            }
+            for ([_][]const u8{ "__pex__/", ".bootstrap/", ".deps/" }) |skip| {
+                if (std.mem.startsWith(u8, name, skip)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    };
+    try zip.parallelExtract(allocator, dest_dir_path, {}, SkipNonUserCode.shouldExtract, .{});
+}
+
 fn writeRepl(
     self: Self,
     allocator: std.mem.Allocator,
@@ -637,7 +667,7 @@ pub fn install(
     } else {
         log.debug("No wheels to install.", .{});
     }
-
+    try installUserCode(allocator, &zip, &venv, work_path);
     try self.writeRepl(allocator, work_dir, &venv, dest_path, &wheels_to_install);
     try self.writeMain(allocator, work_dir, &venv, dest_path);
 

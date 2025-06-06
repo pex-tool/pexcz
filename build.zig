@@ -66,6 +66,7 @@ pub fn build(b: *std.Build) !void {
 
     var update_source_files = b.addUpdateSourceFiles();
 
+    var pexcz_emitted_bin: ?std.Build.LazyPath = null;
     for (target_queries, target_dirs.items) |tq, target_dir| {
         const rt = b.resolveTargetQuery(tq);
 
@@ -118,6 +119,7 @@ pub fn build(b: *std.Build) !void {
         var exe_output = b.addInstallArtifact(exe, .{});
         exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, exe_output.dest_sub_path });
         b.getInstallStep().dependOn(&exe_output.step);
+        pexcz_emitted_bin = exe.getEmittedBin();
 
         if (cur_tgt.result.os.tag == rt.result.os.tag and
             cur_tgt.result.cpu.arch == rt.result.cpu.arch and
@@ -163,11 +165,14 @@ pub fn build(b: *std.Build) !void {
     lib_unit_tests.root_module.addImport("known-folders", known_folders);
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
+    const exe_test_options = b.addOptions();
+    exe_test_options.addOptionPath("pexcz_exe", pexcz_emitted_bin.?);
     const exe_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
         .target = cur_tgt,
         .optimize = optimize,
     });
+    exe_unit_tests.root_module.addImport("options", exe_test_options.createModule());
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
