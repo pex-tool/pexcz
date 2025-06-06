@@ -386,14 +386,15 @@ test "Export PEX env var" {
     var tmp_dir = std.testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    var exe_py: ?std.fs.File = try tmp_dir.dir.createFile("exe.py", .{});
-    defer if (exe_py) |fp| fp.close();
+    const tmp_dir_path = try tmp_dir.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(tmp_dir_path);
 
-    var exe_py_fp = std.io.bufferedWriter(exe_py.?.writer());
+    var exe_py= try tmp_dir.dir.createFile("exe.py", .{});
+    defer exe_py.close();
+
+    var exe_py_fp = std.io.bufferedWriter(exe_py.writer());
     try exe_py_fp.writer().writeAll("import os; print(os.environ[\"PEX\"])");
     try exe_py_fp.flush();
-    exe_py.?.close();
-    exe_py = null;
 
     const create_pex_result = try std.process.Child.run(.{
         .allocator = std.testing.allocator,
@@ -406,6 +407,7 @@ test "Export PEX env var" {
             "-o",
             "test.pex",
         },
+        .cwd = tmp_dir_path,
         .cwd_dir = tmp_dir.dir,
     });
     defer std.testing.allocator.free(create_pex_result.stdout);
@@ -422,6 +424,7 @@ test "Export PEX env var" {
     const execute_pex_result = try std.process.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "uv", "run", "python", "test.pex" },
+        .cwd = tmp_dir_path,
         .cwd_dir = tmp_dir.dir,
         .max_output_bytes = 1024 * 1024,
     });
@@ -446,6 +449,7 @@ test "Export PEX env var" {
     const create_czex_result = try std.process.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ options.pexcz_exe, "inject", "test.pex" },
+        .cwd = tmp_dir_path,
         .cwd_dir = tmp_dir.dir,
     });
     defer std.testing.allocator.free(create_czex_result.stdout);
@@ -458,6 +462,7 @@ test "Export PEX env var" {
     const execute_czex_result = try std.process.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "uv", "run", "python", "test.czex" },
+        .cwd = tmp_dir_path,
         .cwd_dir = tmp_dir.dir,
         .max_output_bytes = 1024 * 1024,
     });
