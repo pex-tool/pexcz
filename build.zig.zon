@@ -1,7 +1,7 @@
 // See: https://github.com/ziglang/zig/blob/master/doc/build.zig.zon.md
 .{
     .name = .pexcz,
-    .version = "0.0.1",
+    .version = "0.0.2",
     .fingerprint = 0x97ea894d71a986ac,
 
     .minimum_zig_version = "0.14.1",
