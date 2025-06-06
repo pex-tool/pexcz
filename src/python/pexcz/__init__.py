@@ -601,8 +601,7 @@ if __name__ == "__main__":
     entry_point = find_entry_point()
     if entry_point is None:
         sys.exit("Could not launch python executable!\n")
-
-    # TODO: XXX: Set PEX env var.
+    os.environ["PEX"] = entry_point
 
     # TODO: XXX: Actually use python_args.
     python_args = []  # type: List[str]

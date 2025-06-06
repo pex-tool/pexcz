@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const native_os = builtin.target.os.tag;
 
 const pexcz = @import("pexcz");
 const Allocator = pexcz.Allocator;
@@ -310,7 +311,7 @@ fn inject(
     var czex_file = try std.fs.cwd().openFileZ(czex.path, .{});
     defer czex_file.close();
 
-    if (builtin.target.os.tag != .windows) {
+    if (native_os != .windows) {
         const metadata = try czex_file.metadata();
         var permissions = metadata.permissions();
         permissions.inner.unixSet(.user, .{ .execute = true });
@@ -377,4 +378,121 @@ pub fn main() !u8 {
     } else {
         return result;
     }
+}
+
+test "Export PEX env var" {
+    const options = @import("options");
+
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const tmp_dir_path = try tmp_dir.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(tmp_dir_path);
+
+    var exe_py = try tmp_dir.dir.createFile("exe.py", .{});
+    defer exe_py.close();
+
+    var exe_py_fp = std.io.bufferedWriter(exe_py.writer());
+    try exe_py_fp.writer().writeAll("import os; print(os.environ[\"PEX\"])");
+    try exe_py_fp.flush();
+
+    const create_pex_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{
+            "uv",
+            "run",
+            "pex",
+            "--exe",
+            "exe.py",
+            "-o",
+            "test.pex",
+        },
+        .cwd = tmp_dir_path,
+        .cwd_dir = tmp_dir.dir,
+    });
+    defer std.testing.allocator.free(create_pex_result.stdout);
+    defer std.testing.allocator.free(create_pex_result.stderr);
+    std.testing.expectEqualDeep(
+        std.process.Child.Term{ .Exited = 0 },
+        create_pex_result.term,
+    ) catch |err| {
+        if (native_os == .windows and builtin.target.cpu.arch == .x86_64) {
+            std.debug.print(
+                \\Create PEX failed with {}
+                \\STDERR:
+                \\{s}
+                \\
+                \\This is a known issue with Pex on Windows. See:
+                \\+ https://github.com/pex-tool/pexcz/issues/23
+                \\+ https://github.com/pex-tool/pex/issues/2658#issuecomment-2635303360
+                \\+ https://github.com/pex-tool/pex/issues/2774
+            , .{ create_pex_result.term, create_pex_result.stderr });
+            return;
+        } else {
+            return err;
+        }
+    };
+
+    const execute_pex_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ "uv", "run", "python", "test.pex" },
+        .cwd = tmp_dir_path,
+        .cwd_dir = tmp_dir.dir,
+        .max_output_bytes = 1024 * 1024,
+    });
+    defer std.testing.allocator.free(execute_pex_result.stdout);
+    defer std.testing.allocator.free(execute_pex_result.stderr);
+    try std.testing.expectEqualDeep(
+        std.process.Child.Term{ .Exited = 0 },
+        execute_pex_result.term,
+    );
+
+    const expected_pex_env_var_value = try tmp_dir.dir.realpathAlloc(
+        std.testing.allocator,
+        "test.pex",
+    );
+    defer std.testing.allocator.free(expected_pex_env_var_value);
+
+    try std.testing.expectEqualStrings(
+        expected_pex_env_var_value,
+        std.mem.trimRight(u8, execute_pex_result.stdout, "\r\n"),
+    );
+
+    const create_czex_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ options.pexcz_exe, "inject", "test.pex" },
+        .cwd = tmp_dir_path,
+        .cwd_dir = tmp_dir.dir,
+    });
+    defer std.testing.allocator.free(create_czex_result.stdout);
+    defer std.testing.allocator.free(create_czex_result.stderr);
+    try std.testing.expectEqualDeep(
+        std.process.Child.Term{ .Exited = 0 },
+        create_czex_result.term,
+    );
+
+    const execute_czex_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ "uv", "run", "python", "test.czex" },
+        .cwd = tmp_dir_path,
+        .cwd_dir = tmp_dir.dir,
+        .max_output_bytes = 1024 * 1024,
+    });
+    defer std.testing.allocator.free(execute_czex_result.stdout);
+    defer std.testing.allocator.free(execute_czex_result.stderr);
+    try std.testing.expectEqualDeep(
+        std.process.Child.Term{ .Exited = 0 },
+        execute_czex_result.term,
+    );
+
+    const expected_czex_pex_env_var_value = try tmp_dir.dir.realpathAlloc(
+        std.testing.allocator,
+        "test.czex",
+    );
+    defer std.testing.allocator.free(expected_czex_pex_env_var_value);
+
+    try std.testing.expectEqualStrings(
+        expected_czex_pex_env_var_value,
+        std.mem.trimRight(u8, execute_czex_result.stdout, "\r\n"),
+    );
 }
