@@ -389,7 +389,7 @@ test "Export PEX env var" {
     const tmp_dir_path = try tmp_dir.dir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(tmp_dir_path);
 
-    var exe_py= try tmp_dir.dir.createFile("exe.py", .{});
+    var exe_py = try tmp_dir.dir.createFile("exe.py", .{});
     defer exe_py.close();
 
     var exe_py_fp = std.io.bufferedWriter(exe_py.writer());
