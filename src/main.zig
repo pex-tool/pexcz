@@ -416,9 +416,21 @@ test "Export PEX env var" {
         std.process.Child.Term{ .Exited = 0 },
         create_pex_result.term,
     ) catch |err| {
-        std.debug.print("Create PEX failed with {}", .{create_pex_result.term});
-        std.debug.print("STDERR:\n{s}\n", .{create_pex_result.stderr});
-        return err;
+        if (native_os == .windows and builtin.target.cpu.arch == .x86_64) {
+            std.debug.print(
+                \\Create PEX failed with {}
+                \\STDERR:
+                \\{s}
+                \\
+                \\This is a known issue with Pex on Windows. See:
+                \\+ https://github.com/pex-tool/pexcz/issues/23
+                \\+ https://github.com/pex-tool/pex/issues/2658#issuecomment-2635303360
+                \\+ https://github.com/pex-tool/pex/issues/2774
+            , .{ create_pex_result.term, create_pex_result.stderr });
+            return;
+        } else {
+            return err;
+        }
     };
 
     const execute_pex_result = try std.process.Child.run(.{
