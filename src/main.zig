@@ -412,26 +412,10 @@ test "Export PEX env var" {
     });
     defer std.testing.allocator.free(create_pex_result.stdout);
     defer std.testing.allocator.free(create_pex_result.stderr);
-    std.testing.expectEqualDeep(
+    try std.testing.expectEqualDeep(
         std.process.Child.Term{ .Exited = 0 },
         create_pex_result.term,
-    ) catch |err| {
-        if (native_os == .windows and builtin.target.cpu.arch == .x86_64) {
-            std.debug.print(
-                \\Create PEX failed with {}
-                \\STDERR:
-                \\{s}
-                \\
-                \\This is a known issue with Pex on Windows. See:
-                \\+ https://github.com/pex-tool/pexcz/issues/23
-                \\+ https://github.com/pex-tool/pex/issues/2658#issuecomment-2635303360
-                \\+ https://github.com/pex-tool/pex/issues/2774
-            , .{ create_pex_result.term, create_pex_result.stderr });
-            return;
-        } else {
-            return err;
-        }
-    };
+    );
 
     const execute_pex_result = try std.process.Child.run(.{
         .allocator = std.testing.allocator,
