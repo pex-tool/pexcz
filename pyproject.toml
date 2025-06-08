@@ -30,7 +30,7 @@ dev = [
     # private here: https://github.com/python/cpython/pull/117412
     "mypy[python2]==0.971; python_version >= '3.6' and python_version < '3.13'",
     "mypy; python_version >= '3.13'",
-    "pex",
+    "pex @ git+https://github.com/pex-tool/pex@dde78526ce29f1c89e1515862cf8d63f8ca5155d",
     "pytest",
     "ruff; python_version >= '3.8'",
     "types-setuptools",
