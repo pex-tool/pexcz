@@ -471,16 +471,16 @@ wheels = [
 
 [[package]]
 name = "pex"
-version = "2.33.7"
+version = "2.40.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/83/f1/47b1dc8f43ed8e467ca17b81e9ef2d943093b3b7630f3c1c4165a40e1bba/pex-2.33.7.tar.gz", hash = "sha256:2c663d7bcd00cb0801a2df259d84b3846926141fd1244a5cde4ec71fbdfa73c3", size = 4697432, upload-time = "2025-03-28T01:10:22.227Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2c/c0/ea238aec8b6427c46e42f9ce5e441a1d14d95d57db558ce6cba5224bce0e/pex-2.40.2.tar.gz", hash = "sha256:e7cf40c75f293651519b5e275e7971f3e88f5998547a1b00386845c517b845df", size = 4921528, upload-time = "2025-06-08T21:49:47.531Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/da/1d91d20d3e56a0f65d56106e2b56ae3e5a863e43a3f32ffbda1c3c7fa698/pex-2.33.7-py2.py3-none-any.whl", hash = "sha256:e97d688dd3b80c1264817001cb593c0c708cc60772508a73ffcecb362d240996", size = 3754049, upload-time = "2025-03-28T01:10:19.741Z" },
+    { url = "https://files.pythonhosted.org/packages/02/f8/1e5c1ed014b270640c8677e12cec6bb7e90138e0d2213a9ba542f98d4a3b/pex-2.40.2-py2.py3-none-any.whl", hash = "sha256:587a2f35c44efaa92d1de4e825bc80d222f339a73f4fab1d1f3c4cdf35a063d0", size = 3834098, upload-time = "2025-06-08T21:49:44.842Z" },
 ]
 
 [[package]]
 name = "pexcz"
-version = "0.0.1"
+version = "0.0.2"
 source = { editable = "." }
 
 [package.dev-dependencies]
@@ -509,7 +509,7 @@ dev = [
     { name = "dev-cmd", extras = ["old-pythons"], marker = "python_full_version >= '3.8'" },
     { name = "mypy", marker = "python_full_version >= '3.13'" },
     { name = "mypy", extras = ["python2"], marker = "python_full_version >= '3.6' and python_full_version < '3.13'", specifier = "==0.971" },
-    { name = "pex" },
+    { name = "pex", specifier = ">=2.40.2" },
     { name = "pytest" },
     { name = "ruff", marker = "python_full_version >= '3.8'" },
     { name = "types-setuptools" },
