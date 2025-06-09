@@ -471,8 +471,12 @@ wheels = [
 
 [[package]]
 name = "pex"
-version = "2.40.1"
-source = { git = "https://github.com/pex-tool/pex?rev=dde78526ce29f1c89e1515862cf8d63f8ca5155d#dde78526ce29f1c89e1515862cf8d63f8ca5155d" }
+version = "2.40.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2c/c0/ea238aec8b6427c46e42f9ce5e441a1d14d95d57db558ce6cba5224bce0e/pex-2.40.2.tar.gz", hash = "sha256:e7cf40c75f293651519b5e275e7971f3e88f5998547a1b00386845c517b845df", size = 4921528, upload-time = "2025-06-08T21:49:47.531Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/f8/1e5c1ed014b270640c8677e12cec6bb7e90138e0d2213a9ba542f98d4a3b/pex-2.40.2-py2.py3-none-any.whl", hash = "sha256:587a2f35c44efaa92d1de4e825bc80d222f339a73f4fab1d1f3c4cdf35a063d0", size = 3834098, upload-time = "2025-06-08T21:49:44.842Z" },
+]
 
 [[package]]
 name = "pexcz"
@@ -505,7 +509,7 @@ dev = [
     { name = "dev-cmd", extras = ["old-pythons"], marker = "python_full_version >= '3.8'" },
     { name = "mypy", marker = "python_full_version >= '3.13'" },
     { name = "mypy", extras = ["python2"], marker = "python_full_version >= '3.6' and python_full_version < '3.13'", specifier = "==0.971" },
-    { name = "pex", git = "https://github.com/pex-tool/pex?rev=dde78526ce29f1c89e1515862cf8d63f8ca5155d" },
+    { name = "pex", specifier = ">=2.40.2" },
     { name = "pytest" },
     { name = "ruff", marker = "python_full_version >= '3.8'" },
     { name = "types-setuptools" },
