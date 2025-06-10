@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 
-import setuptools.build_meta
+import setuptools.build_meta  # type: ignore
 import zig
 
 # The following `setuptools.build_meta` imports are all public hook exports used by build frontends.

@@ -222,8 +222,27 @@ fn embedLibs(pex: *Zip) !void {
             );
             return error.ZipEntryAddMainError;
         }
-        try setEntryMtime(pex, @intCast(dest_idx), "__main__.py");
+        try setEntryMtime(pex, @intCast(dest_idx), lib_rel_path);
     }
+}
+
+fn addEntryPoint(pex: *Zip, entry_point: [*c]const u8) !void {
+    const src = c.zip_source_buffer(pex.handle, __main__.ptr, __main__.len, 0) orelse {
+        log.err(
+            "Failed to create a zip source buffer from __main__.py to add to {s}: {s}",
+            .{ pex.path, c.zip_strerror(pex.handle) },
+        );
+        return error.ZipEntryOpenMainError;
+    };
+    const dest_idx = c.zip_file_add(pex.handle, entry_point, src, 0);
+    if (dest_idx < 0) {
+        log.err(
+            "Failed to add {s} file entry to {s}: {s}",
+            .{ entry_point, pex.path, c.zip_strerror(pex.handle) },
+        );
+        return error.ZipEntryAddMainError;
+    }
+    try setEntryMtime(pex, @intCast(dest_idx), std.mem.span(entry_point));
 }
 
 const ProgressContext = extern struct {
@@ -271,23 +290,8 @@ fn inject(
 
     try transferEntries(&pex, &czex, .{ .method = .zstd, .level = 3 });
     try embedLibs(&czex);
-
-    const src = c.zip_source_buffer(czex.handle, __main__.ptr, __main__.len, 0) orelse {
-        log.err(
-            "Failed to create a zip source buffer from __main__.py to add to {s}: {s}",
-            .{ czex.path, c.zip_strerror(czex.handle) },
-        );
-        return error.ZipEntryOpenMainError;
-    };
-    const dest_idx = c.zip_file_add(czex.handle, "__main__.py", src, 0);
-    if (dest_idx < 0) {
-        log.err(
-            "Failed to add __main__.py file entry to {s}: {s}",
-            .{ czex.path, c.zip_strerror(czex.handle) },
-        );
-        return error.ZipEntryAddMainError;
-    }
-    try setEntryMtime(&czex, @intCast(dest_idx), "__main__.py");
+    try addEntryPoint(&czex, "__pex__/__init__.py");
+    try addEntryPoint(&czex, "__main__.py");
 
     var root_progress = std.Progress.start(.{
         .refresh_rate_ns = 17 * std.time.ns_per_ms, // ~60Hz

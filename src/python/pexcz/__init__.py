@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import ctypes
 import functools
+import importlib
 import os
 import os.path
 import pkgutil
@@ -18,6 +19,7 @@ from ctypes import cdll
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
+    from types import ModuleType  # noqa: F401
     from typing import (  # noqa: F401
         Any,
         Callable,
@@ -333,7 +335,7 @@ def timed(unit):
                     return func(*args, **kwargs)
                 finally:
                     print(
-                        "{func}(*{args!r}, **{kwargs!r}) took {elapsed:.4}{unit}".format(
+                        "pex: {func}(*{args!r}, **{kwargs!r}) took {elapsed:.4}{unit}".format(
                             func=func.__name__,
                             args=args,
                             kwargs=kwargs,
@@ -420,6 +422,9 @@ class Pexcz(Protocol):
         pass
 
 
+SHOULD_EXECUTE = __name__ == "__main__"
+
+
 @timed(MS)
 def _load_pexcz():
     # type: () -> Pexcz
@@ -432,15 +437,16 @@ def _load_pexcz():
         platform_id = "{arch}-{os}".format(arch=CURRENT_ARCH, os=CURRENT_OS)
         if CURRENT_ABI:
             platform_id = "{platform_id}-{abi}".format(platform_id=platform_id, abi=CURRENT_ABI)
+        prefix = ".lib" if __name__ == "__pex__" else os.path.join("__pex__", ".lib")
         try:
             # N.B.: This is the production resource.
             pexcz_data = pkgutil.get_data(
-                __name__, os.path.join(".lib", platform_id, library_file_name)
+                __name__, os.path.join(prefix, platform_id, library_file_name)
             )
         except (IOError, OSError):
             # And this is the development resource.
             pexcz_data = pkgutil.get_data(
-                __name__, os.path.join(".lib", "native", library_file_name)
+                __name__, os.path.join(prefix, "native", library_file_name)
             )
         if pexcz_data is None:
             raise RuntimeError(
@@ -520,7 +526,7 @@ BOOT_ERROR_CODE = 75
 
 @timed(MS)
 def boot(
-    pex,
+    pex,  # type: str
     python=None,  # type: Optional[str]
     python_args=None,  # type: Optional[Sequence[str]]
     args=None,  # type: Optional[Sequence[str]]
@@ -561,8 +567,75 @@ def boot(
     )
 
 
-# TODO: XXX: Actually handle __pex__/__init__.py import hook use case.
-SHOULD_EXECUTE = __name__ == "__main__"
+if sys.version_info[:2] >= (3, 4):
+    from importlib.abc import Loader as Loader
+    from importlib.abc import MetaPathFinder as Finder
+    from importlib.machinery import ModuleSpec as ModuleSpec
+else:
+
+    class Loader(Protocol):
+        pass
+
+    class ModuleSpec(Protocol):
+        pass
+
+    class Finder(Protocol):
+        pass
+
+
+class PexImporter(Finder, Loader):
+    def find_module(
+        self,
+        fullname,  # type: str
+        path,  # type: Any
+    ):
+        # type: (...) -> Optional[Loader]
+        return self
+
+    def find_spec(
+        self,
+        fullname,  # type: str
+        path,  # type: Any
+        target=None,  # type: Optional[ModuleType]
+    ):
+        # type: (...) -> Optional[ModuleSpec]
+        # Python 2.7 does not know about this API and does not use it.
+        from importlib.util import spec_from_loader  # type: ignore[import]
+
+        return spec_from_loader(fullname, self)
+
+    @staticmethod
+    def load_module(fullname):
+        # type: (str) -> ModuleType
+        root_package, _, module_name = fullname.partition(".")
+        if root_package != "__pex__":
+            raise ImportError(
+                "Cannot import sub-modules for {root}: {module}".format(
+                    root=root_package, module=module_name
+                )
+            )
+        return sys.modules.setdefault(fullname, importlib.import_module(module_name))
+
+
+@timed(MS)
+def mount(
+    pex,  # type: str
+    python=None,  # type: Optional[str]
+):
+    pex_file = to_cstr(pex)
+
+    boot_python = python or sys.executable
+    python_exe = to_cstr(boot_python)
+
+    sys_path_entry = ctypes.create_string_buffer(8096)
+    result = _pexcz.mount(python_exe, pex_file, sys_path_entry)
+    if result != 0:
+        raise RuntimeError("Could not mount PEX!")
+    entry = str(sys_path_entry.value)
+    sys.path.append(entry)
+    sys.meta_path.append(PexImporter())
+    if _PEX_VERBOSE:
+        print("pex: Mounted PEX {entry} on sys.path.".format(entry=entry), sys.stderr)
 
 
 def entry_point_from_filename(filename):
@@ -613,3 +686,8 @@ if __name__ == "__main__":
                 break
 
     boot(entry_point, args=sys.argv[1:])
+elif __name__ == "__pex__":
+    entry_point = find_entry_point()
+    if entry_point is None:
+        raise RuntimeError("Could not mount PEX!")
+    mount(entry_point)
