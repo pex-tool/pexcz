@@ -590,7 +590,7 @@ class PexImporter(Finder, Loader):
         path,  # type: Any
     ):
         # type: (...) -> Optional[Loader]
-        return self
+        return self if fullname.startswith("__pex__.") else None
 
     def find_spec(
         self,
@@ -602,7 +602,7 @@ class PexImporter(Finder, Loader):
         # Python 2.7 does not know about this API and does not use it.
         from importlib.util import spec_from_loader  # type: ignore[import]
 
-        return spec_from_loader(fullname, self)
+        return spec_from_loader(fullname, self) if fullname.startswith("__pex__.") else None
 
     @staticmethod
     def load_module(fullname):
@@ -631,8 +631,12 @@ def mount(
     result = _pexcz.mount(python_exe, pex_file, sys_path_entry)
     if result != 0:
         raise RuntimeError("Could not mount PEX!")
-    entry = str(sys_path_entry.value)
-    sys.path.append(entry)
+    entry = (
+        sys_path_entry.value.decode("utf-8") if sys.version_info[0] >= 3 else sys_path_entry.value
+    )
+    # N.B.: The sys.path list contains str on both Python 2.7 and Python 3. MyPy can't track the
+    # conditional above though and worries unicode gets appended to the list under Python 2.7.
+    sys.path.append(entry)  # type: ignore[arg-type]
     sys.meta_path.append(PexImporter())
     if _PEX_VERBOSE:
         print("pex: Mounted PEX {entry} on sys.path.".format(entry=entry), sys.stderr)

@@ -325,7 +325,6 @@ fn inject(
     }
 
     std.debug.print("Injected pexcz runtime for {s} in {s}\n", .{ pex_path, czex.path });
-    // TODO(John Sirois): XXX: handle __pex__/ import hook
 }
 
 const BootResult = enum(c_int) {
@@ -483,4 +482,128 @@ test "Export PEX env var" {
         expected_czex_pex_env_var_value,
         std.mem.trimRight(u8, execute_czex_result.stdout, "\r\n"),
     );
+}
+
+test "__pex__ import hook" {
+    const options = @import("options");
+
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const tmp_dir_path = try tmp_dir.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(tmp_dir_path);
+
+    const create_pex_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{
+            "uv",
+            "run",
+            "pex",
+            "cowsay<6",
+            "-o",
+            "test.pex",
+        },
+        .cwd = tmp_dir_path,
+        .cwd_dir = tmp_dir.dir,
+    });
+    defer std.testing.allocator.free(create_pex_result.stdout);
+    defer std.testing.allocator.free(create_pex_result.stderr);
+    try std.testing.expectEqualDeep(
+        std.process.Child.Term{ .Exited = 0 },
+        create_pex_result.term,
+    );
+
+    const create_czex_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ options.pexcz_exe, "inject", "test.pex" },
+        .cwd = tmp_dir_path,
+        .cwd_dir = tmp_dir.dir,
+    });
+    defer std.testing.allocator.free(create_czex_result.stdout);
+    defer std.testing.allocator.free(create_czex_result.stderr);
+    try std.testing.expectEqualDeep(
+        std.process.Child.Term{ .Exited = 0 },
+        create_czex_result.term,
+    );
+
+    var env_map = try std.process.getEnvMap(std.testing.allocator);
+    defer env_map.deinit();
+    try env_map.put("PYTHONPATH", "test.czex");
+
+    const execute_czex_result1 = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{
+            "uv",
+            "run",
+            "python",
+            "-c",
+            "from __pex__ import cowsay; cowsay.tux('Moo?')",
+        },
+        .env_map = &env_map,
+        .cwd = tmp_dir_path,
+        .cwd_dir = tmp_dir.dir,
+        .max_output_bytes = 1024 * 1024,
+    });
+    defer std.testing.allocator.free(execute_czex_result1.stdout);
+    defer std.testing.allocator.free(execute_czex_result1.stderr);
+    std.testing.expectEqualDeep(
+        std.process.Child.Term{ .Exited = 0 },
+        execute_czex_result1.term,
+    ) catch |err| {
+        std.debug.print("STDERR:\n{s}", .{execute_czex_result1.stderr});
+        return err;
+    };
+    try std.testing.expectEqualStrings(
+        \\  ____
+        \\| Moo? |
+        \\  ====
+        \\         \
+        \\          \
+        \\           \
+        \\            .--.
+        \\           |o_o |
+        \\           |:_/ |
+        \\          //   \ \
+        \\         (|     | )
+        \\        /'\_   _/`\
+        \\        \___)=(___/
+        \\
+    , execute_czex_result1.stdout);
+
+    const execute_czex_result2 = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{
+            "uv",
+            "run",
+            "python",
+            "-c",
+            "import __pex__; import cowsay; cowsay.tux('Moo Two?')",
+        },
+        .env_map = &env_map,
+        .cwd = tmp_dir_path,
+        .cwd_dir = tmp_dir.dir,
+        .max_output_bytes = 1024 * 1024,
+    });
+    defer std.testing.allocator.free(execute_czex_result2.stdout);
+    defer std.testing.allocator.free(execute_czex_result2.stderr);
+    try std.testing.expectEqualDeep(
+        std.process.Child.Term{ .Exited = 0 },
+        execute_czex_result2.term,
+    );
+    try std.testing.expectEqualStrings(
+        \\  ________
+        \\| Moo Two? |
+        \\  ========
+        \\             \
+        \\              \
+        \\               \
+        \\                .--.
+        \\               |o_o |
+        \\               |:_/ |
+        \\              //   \ \
+        \\             (|     | )
+        \\            /'\_   _/`\
+        \\            \___)=(___/
+        \\
+    , execute_czex_result2.stdout);
 }
