@@ -546,13 +546,23 @@ test "__pex__ import hook" {
     });
     defer std.testing.allocator.free(execute_czex_result1.stdout);
     defer std.testing.allocator.free(execute_czex_result1.stderr);
-    std.testing.expectEqualDeep(
+    try std.testing.expectEqualDeep(
         std.process.Child.Term{ .Exited = 0 },
         execute_czex_result1.term,
-    ) catch |err| {
-        std.debug.print("STDERR:\n{s}", .{execute_czex_result1.stderr});
-        return err;
+    );
+    const expected1 = res: {
+        if (native_os == .windows) {
+            const expected = try std.testing.allocator.alloc(
+                u8,
+                std.mem.replacementSize(u8, execute_czex_result1.stdout, "\r\n", "\n"),
+            );
+            std.mem.replace(u8, execute_czex_result1.stdout, "\r\n", "\n", expected);
+            break :res expected;
+        } else {
+            break :res execute_czex_result1.stdout;
+        }
     };
+    defer if (native_os == .windows) std.testing.allocator.free(expected1);
     try std.testing.expectEqualStrings(
         \\  ____
         \\| Moo? |
@@ -568,7 +578,7 @@ test "__pex__ import hook" {
         \\        /'\_   _/`\
         \\        \___)=(___/
         \\
-    , execute_czex_result1.stdout);
+    , expected1);
 
     const execute_czex_result2 = try std.process.Child.run(.{
         .allocator = std.testing.allocator,
@@ -590,6 +600,19 @@ test "__pex__ import hook" {
         std.process.Child.Term{ .Exited = 0 },
         execute_czex_result2.term,
     );
+    const expected2 = res: {
+        if (native_os == .windows) {
+            const expected = try std.testing.allocator.alloc(
+                u8,
+                std.mem.replacementSize(u8, execute_czex_result2.stdout, "\r\n", "\n"),
+            );
+            std.mem.replace(u8, execute_czex_result2.stdout, "\r\n", "\n", expected);
+            break :res expected;
+        } else {
+            break :res execute_czex_result2.stdout;
+        }
+    };
+    defer if (native_os == .windows) std.testing.allocator.free(expected2);
     try std.testing.expectEqualStrings(
         \\  ________
         \\| Moo Two? |
@@ -605,5 +628,5 @@ test "__pex__ import hook" {
         \\            /'\_   _/`\
         \\            \___)=(___/
         \\
-    , execute_czex_result2.stdout);
+    , expected2);
 }
