@@ -556,7 +556,7 @@ test "__pex__ import hook" {
                 u8,
                 std.mem.replacementSize(u8, execute_czex_result1.stdout, "\r\n", "\n"),
             );
-            std.mem.replace(u8, execute_czex_result1.stdout, "\r\n", "\n", expected);
+            _ = std.mem.replace(u8, execute_czex_result1.stdout, "\r\n", "\n", expected);
             break :res expected;
         } else {
             break :res execute_czex_result1.stdout;
@@ -606,7 +606,7 @@ test "__pex__ import hook" {
                 u8,
                 std.mem.replacementSize(u8, execute_czex_result2.stdout, "\r\n", "\n"),
             );
-            std.mem.replace(u8, execute_czex_result2.stdout, "\r\n", "\n", expected);
+            _ = std.mem.replace(u8, execute_czex_result2.stdout, "\r\n", "\n", expected);
             break :res expected;
         } else {
             break :res execute_czex_result2.stdout;
