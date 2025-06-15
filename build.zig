@@ -96,7 +96,7 @@ pub fn build(b: *std.Build) !void {
             "{s}pexcz{s}",
             .{ rt.result.libPrefix(), rt.result.dynamicLibSuffix() },
         );
-        const sub_path = try std.fs.path.join(b.allocator, &.{ "src", ".lib", target_dir, library_name });
+        const sub_path = try std.fs.path.join(b.allocator, &.{ "src", "__pex__", ".lib", target_dir, library_name });
         update_source_files.addCopyFileToSource(clib.getEmittedBin(), sub_path);
         options.addOptionPath(target_dir, b.path(sub_path));
 

@@ -117,13 +117,23 @@ const BootSpec = struct {
     venv_path: [*:0]const u8,
     python_exe: [*:0]const u8,
     main_py: [*:0]const u8,
+    site_packages_path: [*:0]const u8,
 
     fn deinit(self: @This()) void {
         self.allocator.free(std.mem.span(self.venv_path));
         self.allocator.free(std.mem.span(self.python_exe));
         self.allocator.free(std.mem.span(self.main_py));
+        self.allocator.free(std.mem.span(self.site_packages_path));
     }
 };
+
+pub fn mount(alloc: anytype, timer: *?std.time.Timer, python_exe_path: [*:0]const u8, pex_path: [*:0]const u8, sys_path_entry: [*:0]u8) !void {
+    const allocator = alloc.allocator();
+    const boot_spec = try setupBoot(allocator, python_exe_path, pex_path);
+    defer boot_spec.deinit();
+    if (timer.*) |*elapsed| log.debug("Mount took {d:.3}µs", .{elapsed.read() / 1_000});
+    @memcpy(sys_path_entry, std.mem.span(boot_spec.site_packages_path));
+}
 
 fn setupBoot(
     allocator: std.mem.Allocator,
@@ -250,10 +260,15 @@ fn setupBoot(
         allocator,
         &.{ venv_cache_dir.path, "__main__.py" },
     );
+    const site_packages_path = try std.fs.path.joinZ(
+        allocator,
+        &.{ venv_cache_dir.path, venv.site_packages_relpath.value },
+    );
     return .{
         .allocator = allocator,
         .venv_path = try allocator.dupeZ(u8, venv_cache_dir.path),
         .python_exe = python_exe,
         .main_py = main_py,
+        .site_packages_path = site_packages_path,
     };
 }
