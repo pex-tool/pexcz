@@ -15,6 +15,7 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
     from typing import (  # noqa: F401
+        IO,
         Any,
         DefaultDict,
         Dict,
@@ -31,13 +32,14 @@ if TYPE_CHECKING:
 
 def implementation_name_and_version():
     # type: () -> Tuple[str, str]
-    if hasattr(sys, "implementation"):
-        implementation_version_info = sys.implementation.version
+    implementation = getattr(sys, "implementation", None)
+    if implementation:
+        implementation_version_info = implementation.version
         version = "{0.major}.{0.minor}.{0.micro}".format(implementation_version_info)
         kind = implementation_version_info.releaselevel
         if kind != "final":
             version += kind[0] + str(implementation_version_info.serial)
-        return sys.implementation.name, version
+        return implementation.name, version
     return "", "0"
 
 
@@ -228,7 +230,12 @@ def iter_ios_platform_tags():
     _, release, _, _ = platform.ios_ver()  # type: ignore[attr-defined, unused-ignore]
     version = tuple(map(int, release.split(".")[:2]))
 
-    multiarch = sys.implementation._multiarch.replace("-", "_")
+    # If the requested major version is less than 12, there won't be any matches.
+    if version[0] < 12:
+        return
+
+    # N.B.: `sys.implementation` is always defined for Python 3.12 and newer.
+    multiarch = sys.implementation._multiarch.replace("-", "_")  # type: ignore[attr-defined]
 
     ios_platform_template = "ios_{major}_{minor}_{multiarch}"
 
@@ -239,10 +246,6 @@ def iter_ios_platform_tags():
     # candidates that won't ever match doesn't really hurt, and it saves us from
     # having to keep an explicit list of known iOS versions in the code. Return
     # the results descending order of version number.
-
-    # If the requested major version is less than 12, there won't be any matches.
-    if version[0] < 12:
-        return
 
     # Consider the actual X.Y version that was requested.
     yield ios_platform_template.format(major=version[0], minor=version[1], multiarch=multiarch)
@@ -616,7 +619,8 @@ def cpython_abis(py_version):
     # type: (Sequence[int]) -> List[str]
 
     try:
-        from importlib.machinery import EXTENSION_SUFFIXES
+        # N.B.: There is no importlib.machinery prior to ~3.3.
+        from importlib.machinery import EXTENSION_SUFFIXES  # type: ignore
     except ImportError:
         import imp
 
@@ -709,7 +713,7 @@ def interpreter_name():
     be returned when appropriate.
     """
     long_name = (
-        sys.implementation.name
+        sys.implementation.name  # type: ignore[attr-defined]
         if hasattr(sys, "implementation")
         else platform.python_implementation().lower()
     )
@@ -871,7 +875,7 @@ def main():
 
     @contextmanager
     def output(file_path=None):
-        # type: (Optional[str]) -> Iterator[TextIO]
+        # type: (Optional[str]) -> Iterator[IO[str]]
         if file_path is None:
             yield sys.stdout
         else:

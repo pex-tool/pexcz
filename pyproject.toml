@@ -44,10 +44,17 @@ line-length = 100
 extend-select = ["I"]
 extend-safe-fixes = ["F401"]
 
+[[tool.mypy.overrides]]
+# N.B.: pkg_resources is imported by setuptools which we extend in our custom build backend. This
+# causes issues type-checking under older Pythons; so we skip deep analysis of this 3rd-party
+# package.
+module = ["pkg_resources.*"]
+follow_imports = "skip"
+
 [tool.uv]
 required-version = ">=0.6"
 # TODO(John Sirois): The one case this doesn't cover is removal of the zig artifacts from
-#  src/python/pexcz/{bin,lib}. Currently, uv is blind to this.
+#  src/python/pexcz/__pex__/.lib. Currently, uv is blind to this.
 cache-keys = [
     # Python:
     "build-system/**/*",
@@ -123,7 +130,7 @@ steps = [[
         "lint",
         # Parallelizing the type checks and test is safe (they don't modify files), and it nets a
         # ~3x speedup over running them all serially.
-        ["type-check-py3.{8..13}", "pytest"],
+        ["type-check-py{2.7,3.{5..13}}", "pytest"],
     ]
 ]]
 

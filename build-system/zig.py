@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     # Ruff doesn't understand Python 2 and thus the type comment usages.
     from typing import Any  # noqa: F401
 
-PEXCZ_LIB_DIR = os.path.abspath(os.path.join("src", "python", "pexcz", ".lib"))
+PEXCZ_LIB_DIR = os.path.abspath(os.path.join("src", "python", "pexcz", "__pex__", ".lib"))
 
 
 def clean_components():
