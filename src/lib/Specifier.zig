@@ -4,19 +4,80 @@ fn trim_ws(value: []const u8) []const u8 {
     return std.mem.trim(u8, value, " \t\n\r");
 }
 
+const Release = struct {
+    segments: []const u16,
+    wildcard: bool,
+
+    fn eq(self: Release, other: Release) bool {
+        const release_segments = @max(self.segments.len, other.segments.len);
+        for (0..release_segments) |index| {
+            if (self.wildcard and index >= self.segments.len) break;
+            const my_segment = if (index < self.segments.len) self.segments[index] else 0;
+            const other_segment = if (index < other.segments.len) other.segments[index] else 0;
+            if (my_segment != other_segment) return false;
+        }
+        return true;
+    }
+
+    fn ne(self: Release, other: Release) bool {
+        return !self.eq(other);
+    }
+
+    fn gte(self: Release, other: Release) bool {
+        const segment_count = self.segments.len;
+        const other_segment_count = other.segments.len;
+        const release_segments = @max(segment_count, other_segment_count);
+        for (0..release_segments) |index| {
+            const my_segment = if (index < segment_count) self.segments[index] else 0;
+            const other_segment = if (index < other_segment_count) other.segments[index] else 0;
+            if (other_segment > my_segment) return true;
+            if (other_segment < my_segment) return false;
+        }
+        return true;
+    }
+
+    fn gt(self: Release, other: Release) bool {
+        return self.ne(other) and self.gte(other);
+    }
+
+    fn lt(self: Release, other: Release) bool {
+        return !self.gte(other);
+    }
+
+    fn lte(self: Release, other: Release) bool {
+        return !self.gt(other);
+    }
+
+    fn compatible(self: Release, other: Release) bool {
+        const segment_count = self.segments.len;
+
+        // TODO: XXX: Review: should this return an error?
+        if (segment_count < 2) return false;
+
+        const other_segment_count = other.segments.len;
+        const leading_components = segment_count - 1;
+        for (0..leading_components) |index| {
+            const my_component = self.segments[index];
+            const other_component = if (other_segment_count > index) other.segments[index] else 0;
+            if (my_component != other_component) return false;
+        }
+        return self.gte(other);
+    }
+};
+
 const PreRelease = union(enum) { alpha: u8, beta: u8, rc: u8 };
 
 const Version = struct {
     allocator: std.mem.Allocator,
     raw: []const u8,
     epoch: ?u8 = null,
-    release: []u16,
+    release: Release,
     pre_release: ?PreRelease = null,
     post_release: ?u8 = null,
     dev_release: ?u8 = null,
     local_version: ?[]const u8 = null,
 
-    fn parse(allocator: std.mem.Allocator, value: []const u8) !Version {
+    fn parse(allocator: std.mem.Allocator, value: []const u8, options: struct { wildcard_allowed: bool = false }) !Version {
         const trimmed_value = trim_ws(value);
         const epoch, const rest = res: {
             if (std.mem.indexOfScalar(u8, trimmed_value, '!')) |index| {
@@ -31,21 +92,32 @@ const Version = struct {
                 break :res .{ null, trimmed_value };
             }
         };
-        var release = try std.ArrayList(u16).initCapacity(allocator, 3);
+
+        var release_segments = try std.ArrayList(u16).initCapacity(allocator, 3);
+        errdefer release_segments.deinit();
+
         var release_segment: [5]u8 = undefined;
         var release_digits: u8 = 0;
         var remaining_index: usize = 0;
-        for (rest) |char| {
+        var wildcard = false;
+        for (rest, 0..) |char, index| {
             if (!std.ascii.isDigit(char)) {
                 if (release_digits == 0) {
                     return error.InvalidVersion;
                 }
-                try release.append(try std.fmt.parseInt(
+                try release_segments.append(try std.fmt.parseInt(
                     u16,
                     release_segment[0..release_digits],
                     10,
                 ));
                 release_digits = 0;
+                if (char == '.' and index + 1 < rest.len and rest[index + 1] == '*') {
+                    if (!options.wildcard_allowed) {
+                        return error.InvalidVersion;
+                    }
+                    wildcard = true;
+                    break;
+                }
             } else {
                 if (release_digits >= release_segment.len) {
                     return error.UnexpectedVersion;
@@ -56,19 +128,19 @@ const Version = struct {
             remaining_index += 1;
         }
         if (release_digits > 0) {
-            try release.append(try std.fmt.parseInt(u16, release_segment[0..release_digits], 10));
+            try release_segments.append(try std.fmt.parseInt(u16, release_segment[0..release_digits], 10));
         }
 
         return .{
             .allocator = allocator,
             .raw = trimmed_value,
             .epoch = epoch,
-            .release = try release.toOwnedSlice(),
+            .release = .{ .segments = try release_segments.toOwnedSlice(), .wildcard = wildcard },
         };
     }
 
     fn deinit(self: @This()) void {
-        self.allocator.free(self.release);
+        self.allocator.free(self.release.segments);
     }
 
     fn compatible(self: Version, other: Version) bool {
@@ -76,16 +148,8 @@ const Version = struct {
         const other_epoch: u8 = other.epoch orelse 0;
         if (other_epoch != my_epoch) return false;
 
-        // TODO: XXX: Review: should this return an error?
-        if (self.release.len < 2) return false;
-
-        const leading_components = self.release.len - 1;
-        for (0..leading_components) |index| {
-            const my_component = self.release[index];
-            const other_component = if (other.release.len > index) other.release[index] else 0;
-            if (my_component != other_component) return false;
-        }
-        return self.gte(other);
+        // TODO: Handle pre/post/dev/local
+        return self.release.compatible(other.release);
     }
 
     fn lte(self: Version, other: Version) bool {
@@ -94,15 +158,8 @@ const Version = struct {
         if (other_epoch < my_epoch) return true;
         if (other_epoch > my_epoch) return false;
 
-        const release_segments = @max(self.release.len, other.release.len);
-        for (0..release_segments) |index| {
-            const my_segment = if (index < self.release.len) self.release[index] else 0;
-            const other_segment = if (index < other.release.len) other.release[index] else 0;
-            if (other_segment > my_segment) return false;
-            if (other_segment < my_segment) return true;
-        }
         // TODO: Handle pre/post/dev/local
-        return true;
+        return self.release.lte(other.release);
     }
 
     fn gte(self: Version, other: Version) bool {
@@ -111,15 +168,8 @@ const Version = struct {
         if (other_epoch < my_epoch) return false;
         if (other_epoch > my_epoch) return true;
 
-        const release_segments = @max(self.release.len, other.release.len);
-        for (0..release_segments) |index| {
-            const my_segment = if (index < self.release.len) self.release[index] else 0;
-            const other_segment = if (index < other.release.len) other.release[index] else 0;
-            if (other_segment > my_segment) return true;
-            if (other_segment < my_segment) return false;
-        }
         // TODO: Handle pre/post/dev/local
-        return true;
+        return self.release.gte(other.release);
     }
 
     fn lt(self: Version, other: Version) bool {
@@ -128,15 +178,8 @@ const Version = struct {
         if (other_epoch < my_epoch) return true;
         if (other_epoch > my_epoch) return false;
 
-        const release_segments = @max(self.release.len, other.release.len);
-        for (0..release_segments) |index| {
-            const my_segment = if (index < self.release.len) self.release[index] else 0;
-            const other_segment = if (index < other.release.len) other.release[index] else 0;
-            if (other_segment > my_segment) return false;
-            if (other_segment < my_segment) return true;
-        }
         // TODO: Handle pre/post/dev/local
-        return false;
+        return self.release.lt(other.release);
     }
 
     fn gt(self: Version, other: Version) bool {
@@ -145,38 +188,26 @@ const Version = struct {
         if (other_epoch < my_epoch) return false;
         if (other_epoch > my_epoch) return true;
 
-        const release_segments = @max(self.release.len, other.release.len);
-        for (0..release_segments) |index| {
-            const my_segment = if (index < self.release.len) self.release[index] else 0;
-            const other_segment = if (index < other.release.len) other.release[index] else 0;
-            if (other_segment > my_segment) return true;
-            if (other_segment < my_segment) return false;
-        }
         // TODO: Handle pre/post/dev/local
-        return false;
-    }
-};
-
-const WildcardVersion = struct {
-    fn parse(value: []const u8) !WildcardVersion {
-        _ = value;
-        @panic("TODO");
+        return self.release.gt(other.release);
     }
 
-    fn deinit(self: @This()) void {
-        _ = self;
+    fn eq(self: Version, other: Version) bool {
+        const my_epoch: u8 = self.epoch orelse 0;
+        const other_epoch: u8 = other.epoch orelse 0;
+        if (other_epoch != my_epoch) return false;
+
+        // TODO: Handle pre/post/dev/local
+        return self.release.eq(other.release);
     }
 
-    fn eq(self: WildcardVersion, other: Version) bool {
-        _ = self;
-        _ = other;
-        return false;
-    }
+    fn ne(self: Version, other: Version) bool {
+        const my_epoch: u8 = self.epoch orelse 0;
+        const other_epoch: u8 = other.epoch orelse 0;
+        if (other_epoch != my_epoch) return true;
 
-    fn ne(self: WildcardVersion, other: Version) bool {
-        _ = self;
-        _ = other;
-        return false;
+        // TODO: Handle pre/post/dev/local
+        return self.release.ne(other.release);
     }
 };
 
@@ -187,8 +218,8 @@ const Clause = union(enum) {
     gte: Version,
     lt: Version,
     gt: Version,
-    eq: WildcardVersion,
-    ne: WildcardVersion,
+    eq: Version,
+    ne: Version,
 };
 
 allocator: std.mem.Allocator,
@@ -218,7 +249,7 @@ pub fn parse(allocator: std.mem.Allocator, value: []const u8) !Self {
                     "==",
                     trimmed_clause[0..2],
                 )) {
-                    try clauses.append(.{ .eq = try WildcardVersion.parse(trimmed_clause[2..]) });
+                    try clauses.append(.{ .eq = try Version.parse(allocator, trimmed_clause[2..], .{ .wildcard_allowed = true }) });
                 } else {
                     return error.InvalidOperator;
                 }
@@ -227,42 +258,27 @@ pub fn parse(allocator: std.mem.Allocator, value: []const u8) !Self {
                 if (trimmed_clause.len == 1 or trimmed_clause[1] != '=') {
                     return error.InvalidOperator;
                 }
-                try clauses.append(.{ .ne = try WildcardVersion.parse(trimmed_clause[2..]) });
+                try clauses.append(.{ .ne = try Version.parse(allocator, trimmed_clause[2..], .{ .wildcard_allowed = true }) });
             },
             '>' => {
                 if (trimmed_clause.len > 1 and trimmed_clause[1] == '=') {
-                    try clauses.append(.{ .gte = try Version.parse(
-                        allocator,
-                        trimmed_clause[2..],
-                    ) });
+                    try clauses.append(.{ .gte = try Version.parse(allocator, trimmed_clause[2..], .{}) });
                 } else {
-                    try clauses.append(.{ .gt = try Version.parse(
-                        allocator,
-                        trimmed_clause[1..],
-                    ) });
+                    try clauses.append(.{ .gt = try Version.parse(allocator, trimmed_clause[1..], .{}) });
                 }
             },
             '<' => {
                 if (trimmed_clause.len > 1 and trimmed_clause[1] == '=') {
-                    try clauses.append(.{ .lte = try Version.parse(
-                        allocator,
-                        trimmed_clause[2..],
-                    ) });
+                    try clauses.append(.{ .lte = try Version.parse(allocator, trimmed_clause[2..], .{}) });
                 } else {
-                    try clauses.append(.{ .lt = try Version.parse(
-                        allocator,
-                        trimmed_clause[1..],
-                    ) });
+                    try clauses.append(.{ .lt = try Version.parse(allocator, trimmed_clause[1..], .{}) });
                 }
             },
             '~' => {
                 if (trimmed_clause.len == 1 or trimmed_clause[1] != '=') {
                     return error.InvalidOperator;
                 }
-                try clauses.append(.{ .compatible = try Version.parse(
-                    allocator,
-                    trimmed_clause[2..],
-                ) });
+                try clauses.append(.{ .compatible = try Version.parse(allocator, trimmed_clause[2..], .{}) });
             },
             else => return error.InvalidSpecifierClause,
         }
@@ -273,8 +289,7 @@ pub fn parse(allocator: std.mem.Allocator, value: []const u8) !Self {
 pub fn deinit(self: Self) void {
     for (self.clauses) |clause| {
         switch (clause) {
-            .compatible, .lte, .gte, .lt, .gt => |ver| ver.deinit(),
-            .eq, .ne => |ver| ver.deinit(),
+            .compatible, .lte, .gte, .lt, .gt, .eq, .ne => |ver| ver.deinit(),
             else => {},
         }
     }
@@ -289,7 +304,7 @@ pub fn matches(self: Self, allocator: std.mem.Allocator, value: []const u8) !boo
 
         fn parsedVersion(this: *@This()) !Version {
             return this.version orelse {
-                const version = try Version.parse(this.allocator, this.raw);
+                const version = try Version.parse(this.allocator, this.raw, .{});
                 this.version = version;
                 return version;
             };
@@ -336,6 +351,11 @@ test "Arbitrary equality whitespace" {
 }
 
 test "GTE" {
+    try std.testing.expectEqual(
+        error.InvalidVersion,
+        Self.parse(std.testing.allocator, ">=3.9.*"),
+    );
+
     const specifier = try Self.parse(std.testing.allocator, ">=3.9");
     defer specifier.deinit();
 
@@ -361,6 +381,8 @@ test "GTE" {
 }
 
 test "GT" {
+    try std.testing.expectEqual(error.InvalidVersion, Self.parse(std.testing.allocator, ">3.9.*"));
+
     const specifier = try Self.parse(std.testing.allocator, ">3.9");
     defer specifier.deinit();
 
@@ -389,6 +411,11 @@ test "GT" {
 }
 
 test "LTE" {
+    try std.testing.expectEqual(
+        error.InvalidVersion,
+        Self.parse(std.testing.allocator, "<=3.9.*"),
+    );
+
     const specifier = try Self.parse(std.testing.allocator, "<=3.9");
     defer specifier.deinit();
 
@@ -398,6 +425,8 @@ test "LTE" {
 }
 
 test "LT" {
+    try std.testing.expectEqual(error.InvalidVersion, Self.parse(std.testing.allocator, "<3.9.*"));
+
     const specifier = try Self.parse(std.testing.allocator, "<3.9");
     defer specifier.deinit();
 
@@ -407,6 +436,11 @@ test "LT" {
 }
 
 test "Compatible" {
+    try std.testing.expectEqual(
+        error.InvalidVersion,
+        Self.parse(std.testing.allocator, "~=3.9.*"),
+    );
+
     const specifier = try Self.parse(std.testing.allocator, "~=3.9");
     defer specifier.deinit();
 
@@ -426,6 +460,54 @@ test "Compatible" {
     try std.testing.expect(!try specifier.matches(std.testing.allocator, "4.0"));
 }
 
+test "EQ" {
+    const specifier = try Self.parse(std.testing.allocator, "==3.9");
+    defer specifier.deinit();
+
+    try std.testing.expect(!try specifier.matches(std.testing.allocator, "3"));
+    try std.testing.expect(try specifier.matches(std.testing.allocator, "3.9"));
+    try std.testing.expect(try specifier.matches(std.testing.allocator, "3.9.0"));
+    try std.testing.expect(try specifier.matches(std.testing.allocator, "3.9.0.0"));
+    try std.testing.expect(!try specifier.matches(std.testing.allocator, "3.9.1"));
+    try std.testing.expect(!try specifier.matches(std.testing.allocator, "3.8"));
+
+    const wildcard_specifier = try Self.parse(std.testing.allocator, "==3.9.*");
+    defer wildcard_specifier.deinit();
+
+    try std.testing.expect(!try wildcard_specifier.matches(std.testing.allocator, "3"));
+    try std.testing.expect(try wildcard_specifier.matches(std.testing.allocator, "3.9"));
+    try std.testing.expect(try wildcard_specifier.matches(std.testing.allocator, "3.9.0"));
+    try std.testing.expect(try wildcard_specifier.matches(std.testing.allocator, "3.9.0.0"));
+    try std.testing.expect(try wildcard_specifier.matches(std.testing.allocator, "3.9.1"));
+    try std.testing.expect(try wildcard_specifier.matches(std.testing.allocator, "3.9.23"));
+    try std.testing.expect(!try wildcard_specifier.matches(std.testing.allocator, "3.8"));
+    try std.testing.expect(!try wildcard_specifier.matches(std.testing.allocator, "3.10"));
+}
+
+test "NE" {
+    const specifier = try Self.parse(std.testing.allocator, "!=3.9");
+    defer specifier.deinit();
+
+    try std.testing.expect(try specifier.matches(std.testing.allocator, "3"));
+    try std.testing.expect(!try specifier.matches(std.testing.allocator, "3.9"));
+    try std.testing.expect(!try specifier.matches(std.testing.allocator, "3.9.0"));
+    try std.testing.expect(!try specifier.matches(std.testing.allocator, "3.9.0.0"));
+    try std.testing.expect(try specifier.matches(std.testing.allocator, "3.9.1"));
+    try std.testing.expect(try specifier.matches(std.testing.allocator, "3.8"));
+
+    const wildcard_specifier = try Self.parse(std.testing.allocator, "!=3.9.*");
+    defer wildcard_specifier.deinit();
+
+    try std.testing.expect(try wildcard_specifier.matches(std.testing.allocator, "3"));
+    try std.testing.expect(!try wildcard_specifier.matches(std.testing.allocator, "3.9"));
+    try std.testing.expect(!try wildcard_specifier.matches(std.testing.allocator, "3.9.0"));
+    try std.testing.expect(!try wildcard_specifier.matches(std.testing.allocator, "3.9.0.0"));
+    try std.testing.expect(!try wildcard_specifier.matches(std.testing.allocator, "3.9.1"));
+    try std.testing.expect(!try wildcard_specifier.matches(std.testing.allocator, "3.9.23"));
+    try std.testing.expect(try wildcard_specifier.matches(std.testing.allocator, "3.8"));
+    try std.testing.expect(try wildcard_specifier.matches(std.testing.allocator, "3.10"));
+}
+
 test "Compound" {
     const specifier = try Self.parse(std.testing.allocator, "~=3.9.2,<3.9.20");
     defer specifier.deinit();
@@ -442,4 +524,22 @@ test "Compound" {
 
     try std.testing.expect(!try specifier.matches(std.testing.allocator, "3.9.20"));
     try std.testing.expect(!try specifier.matches(std.testing.allocator, "3.9.20.0"));
+
+    const subtractive_specifier = try Self.parse(
+        std.testing.allocator,
+        ">=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,<3.14",
+    );
+    defer subtractive_specifier.deinit();
+
+    try std.testing.expect(try subtractive_specifier.matches(std.testing.allocator, "2.7.18"));
+    try std.testing.expect(try subtractive_specifier.matches(std.testing.allocator, "3.5"));
+    try std.testing.expect(try subtractive_specifier.matches(std.testing.allocator, "3.5.0"));
+    try std.testing.expect(try subtractive_specifier.matches(std.testing.allocator, "3.13.5"));
+    try std.testing.expect(try subtractive_specifier.matches(std.testing.allocator, "3.13.5"));
+    try std.testing.expect(!try subtractive_specifier.matches(std.testing.allocator, "3.0"));
+    try std.testing.expect(!try subtractive_specifier.matches(std.testing.allocator, "3.1.1"));
+    try std.testing.expect(!try subtractive_specifier.matches(std.testing.allocator, "3.2.2"));
+    try std.testing.expect(!try subtractive_specifier.matches(std.testing.allocator, "3.3.3"));
+    try std.testing.expect(!try subtractive_specifier.matches(std.testing.allocator, "3.4"));
+    try std.testing.expect(!try subtractive_specifier.matches(std.testing.allocator, "3.14"));
 }
