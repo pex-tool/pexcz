@@ -77,7 +77,11 @@ const Version = struct {
     dev_release: ?u8 = null,
     local_version: ?[]const u8 = null,
 
-    fn parse(allocator: std.mem.Allocator, value: []const u8, options: struct { wildcard_allowed: bool = false }) !Version {
+    fn parse(
+        allocator: std.mem.Allocator,
+        value: []const u8,
+        options: struct { wildcard_allowed: bool = false },
+    ) !Version {
         const trimmed_value = trim_ws(value);
         const epoch, const rest = res: {
             if (std.mem.indexOfScalar(u8, trimmed_value, '!')) |index| {
@@ -100,6 +104,7 @@ const Version = struct {
         var release_digits: u8 = 0;
         var remaining_index: usize = 0;
         var wildcard = false;
+        // TODO: XXX: Need to handle transition from a release segment to pre | post | dev | local.
         for (rest, 0..) |char, index| {
             if (!std.ascii.isDigit(char)) {
                 if (release_digits == 0) {
@@ -128,7 +133,11 @@ const Version = struct {
             remaining_index += 1;
         }
         if (release_digits > 0) {
-            try release_segments.append(try std.fmt.parseInt(u16, release_segment[0..release_digits], 10));
+            try release_segments.append(try std.fmt.parseInt(
+                u16,
+                release_segment[0..release_digits],
+                10,
+            ));
         }
 
         return .{
@@ -153,13 +162,7 @@ const Version = struct {
     }
 
     fn lte(self: Version, other: Version) bool {
-        const my_epoch: u8 = self.epoch orelse 0;
-        const other_epoch: u8 = other.epoch orelse 0;
-        if (other_epoch < my_epoch) return true;
-        if (other_epoch > my_epoch) return false;
-
-        // TODO: Handle pre/post/dev/local
-        return self.release.lte(other.release);
+        return !self.gt(other);
     }
 
     fn gte(self: Version, other: Version) bool {
@@ -173,23 +176,11 @@ const Version = struct {
     }
 
     fn lt(self: Version, other: Version) bool {
-        const my_epoch: u8 = self.epoch orelse 0;
-        const other_epoch: u8 = other.epoch orelse 0;
-        if (other_epoch < my_epoch) return true;
-        if (other_epoch > my_epoch) return false;
-
-        // TODO: Handle pre/post/dev/local
-        return self.release.lt(other.release);
+        return !self.gte(other);
     }
 
     fn gt(self: Version, other: Version) bool {
-        const my_epoch: u8 = self.epoch orelse 0;
-        const other_epoch: u8 = other.epoch orelse 0;
-        if (other_epoch < my_epoch) return false;
-        if (other_epoch > my_epoch) return true;
-
-        // TODO: Handle pre/post/dev/local
-        return self.release.gt(other.release);
+        return self.ne(other) and self.gte(other);
     }
 
     fn eq(self: Version, other: Version) bool {
@@ -202,12 +193,7 @@ const Version = struct {
     }
 
     fn ne(self: Version, other: Version) bool {
-        const my_epoch: u8 = self.epoch orelse 0;
-        const other_epoch: u8 = other.epoch orelse 0;
-        if (other_epoch != my_epoch) return true;
-
-        // TODO: Handle pre/post/dev/local
-        return self.release.ne(other.release);
+        return !self.eq(other);
     }
 };
 
@@ -249,7 +235,11 @@ pub fn parse(allocator: std.mem.Allocator, value: []const u8) !Self {
                     "==",
                     trimmed_clause[0..2],
                 )) {
-                    try clauses.append(.{ .eq = try Version.parse(allocator, trimmed_clause[2..], .{ .wildcard_allowed = true }) });
+                    try clauses.append(.{ .eq = try Version.parse(
+                        allocator,
+                        trimmed_clause[2..],
+                        .{ .wildcard_allowed = true },
+                    ) });
                 } else {
                     return error.InvalidOperator;
                 }
@@ -258,27 +248,51 @@ pub fn parse(allocator: std.mem.Allocator, value: []const u8) !Self {
                 if (trimmed_clause.len == 1 or trimmed_clause[1] != '=') {
                     return error.InvalidOperator;
                 }
-                try clauses.append(.{ .ne = try Version.parse(allocator, trimmed_clause[2..], .{ .wildcard_allowed = true }) });
+                try clauses.append(.{ .ne = try Version.parse(
+                    allocator,
+                    trimmed_clause[2..],
+                    .{ .wildcard_allowed = true },
+                ) });
             },
             '>' => {
                 if (trimmed_clause.len > 1 and trimmed_clause[1] == '=') {
-                    try clauses.append(.{ .gte = try Version.parse(allocator, trimmed_clause[2..], .{}) });
+                    try clauses.append(.{ .gte = try Version.parse(
+                        allocator,
+                        trimmed_clause[2..],
+                        .{},
+                    ) });
                 } else {
-                    try clauses.append(.{ .gt = try Version.parse(allocator, trimmed_clause[1..], .{}) });
+                    try clauses.append(.{ .gt = try Version.parse(
+                        allocator,
+                        trimmed_clause[1..],
+                        .{},
+                    ) });
                 }
             },
             '<' => {
                 if (trimmed_clause.len > 1 and trimmed_clause[1] == '=') {
-                    try clauses.append(.{ .lte = try Version.parse(allocator, trimmed_clause[2..], .{}) });
+                    try clauses.append(.{ .lte = try Version.parse(
+                        allocator,
+                        trimmed_clause[2..],
+                        .{},
+                    ) });
                 } else {
-                    try clauses.append(.{ .lt = try Version.parse(allocator, trimmed_clause[1..], .{}) });
+                    try clauses.append(.{ .lt = try Version.parse(
+                        allocator,
+                        trimmed_clause[1..],
+                        .{},
+                    ) });
                 }
             },
             '~' => {
                 if (trimmed_clause.len == 1 or trimmed_clause[1] != '=') {
                     return error.InvalidOperator;
                 }
-                try clauses.append(.{ .compatible = try Version.parse(allocator, trimmed_clause[2..], .{}) });
+                try clauses.append(.{ .compatible = try Version.parse(
+                    allocator,
+                    trimmed_clause[2..],
+                    .{},
+                ) });
             },
             else => return error.InvalidSpecifierClause,
         }
