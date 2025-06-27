@@ -216,13 +216,11 @@ const Version = struct {
                     index += end_index;
                     continue;
                 } else if (try Post.parse(tail)) |result| {
-                    const post, const end_index = result;
-                    post_release = post;
+                    post_release, const end_index = result;
                     index += end_index;
                     continue;
                 } else if (try Dev.parse(tail)) |result| {
-                    const dev, const end_index = result;
-                    dev_release = dev;
+                    dev_release, const end_index = result;
                     index += end_index;
                     continue;
                 }
