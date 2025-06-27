@@ -4,6 +4,10 @@ fn trim_ws(value: []const u8) []const u8 {
     return std.mem.trim(u8, value, " \t\n\r");
 }
 
+fn trim_leading_v(value: []const u8) []const u8 {
+    return if (value.len > 0 and value[0] == 'v') value[1..] else value;
+}
+
 const Release = struct {
     segments: []const u16,
     wildcard: bool,
@@ -67,6 +71,52 @@ const Release = struct {
 
 const PreRelease = union(enum) { alpha: u8, beta: u8, rc: u8 };
 
+fn NonReleaseSegmentParser(comptime T: type, comptime prefixes: []const []const u8) type {
+    const leaders = [_][]const u8{ "", ".", "-", "_" };
+    comptime var all_prefixes: [prefixes.len * leaders.len][]const u8 = undefined;
+    comptime var index = 0;
+
+    inline for (prefixes) |prefix| {
+        inline for (leaders) |leader| {
+            all_prefixes[index] = leader ++ prefix;
+            index += 1;
+        }
+    }
+
+    return struct {
+        fn parse(text: []const u8) !?std.meta.Tuple(&.{ T, usize }) {
+            for (all_prefixes) |prefix| {
+                if (!std.mem.startsWith(u8, text, prefix)) {
+                    continue;
+                }
+                const start_index = prefix.len;
+                var end_index = start_index;
+                for (text[start_index..]) |ch| {
+                    if (!std.ascii.isDigit(ch)) {
+                        break;
+                    } else {
+                        end_index += 1;
+                    }
+                }
+                const suffix = text[start_index..end_index];
+                const segment_value = if (suffix.len == 0) 0 else try std.fmt.parseInt(
+                    T,
+                    suffix,
+                    10,
+                );
+                return .{ segment_value, end_index };
+            }
+            return null;
+        }
+    };
+}
+
+const Alpha = NonReleaseSegmentParser(u8, &.{ "alpha", "a" });
+const Beta = NonReleaseSegmentParser(u8, &.{ "beta", "b" });
+const RC = NonReleaseSegmentParser(u8, &.{ "preview", "pre", "rc", "c" });
+const Post = NonReleaseSegmentParser(u8, &.{ "post", "rev", "r" });
+const Dev = NonReleaseSegmentParser(u8, &.{"dev"});
+
 const Version = struct {
     allocator: std.mem.Allocator,
     raw: []const u8,
@@ -82,7 +132,7 @@ const Version = struct {
         value: []const u8,
         options: struct { wildcard_allowed: bool = false },
     ) !Version {
-        const trimmed_value = trim_ws(value);
+        const trimmed_value = trim_leading_v(trim_ws(value));
         const epoch, const rest = res: {
             if (std.mem.indexOfScalar(u8, trimmed_value, '!')) |index| {
                 if (index == trimmed_value.len - 1) {
@@ -102,26 +152,79 @@ const Version = struct {
 
         var release_segment: [5]u8 = undefined;
         var release_digits: u8 = 0;
-        var remaining_index: usize = 0;
         var wildcard = false;
-        // TODO: XXX: Need to handle transition from a release segment to pre | post | dev | local.
-        for (rest, 0..) |char, index| {
+
+        var pre_release: ?PreRelease = null;
+        var post_release: ?u8 = null;
+        var dev_release: ?u8 = null;
+        var local_version: ?[]const u8 = null;
+
+        var index: usize = 0;
+        while (index < rest.len) {
+            const char = rest[index];
             if (!std.ascii.isDigit(char)) {
-                if (release_digits == 0) {
-                    return error.InvalidVersion;
-                }
-                try release_segments.append(try std.fmt.parseInt(
-                    u16,
-                    release_segment[0..release_digits],
-                    10,
-                ));
-                release_digits = 0;
-                if (char == '.' and index + 1 < rest.len and rest[index + 1] == '*') {
-                    if (!options.wildcard_allowed) {
+                if (pre_release == null and post_release == null and dev_release == null and local_version == null) {
+                    if (release_digits == 0) {
                         return error.InvalidVersion;
                     }
-                    wildcard = true;
+                    try release_segments.append(try std.fmt.parseInt(
+                        u16,
+                        release_segment[0..release_digits],
+                        10,
+                    ));
+                    release_digits = 0;
+                }
+
+                if (char == '.') {
+                    if (index + 1 >= rest.len) {
+                        return error.InvalidVersion;
+                    }
+                    const next_char = rest[index + 1];
+                    if (next_char == '*') {
+                        if (!options.wildcard_allowed) {
+                            return error.InvalidVersion;
+                        }
+                        wildcard = true;
+                        break;
+                    } else if (std.ascii.isDigit(next_char)) {
+                        index += 1;
+                        continue;
+                    }
+                } else if (char == '+') {
+                    if (index + 1 >= rest.len) {
+                        return error.InvalidVersion;
+                    }
+                    local_version = rest[index + 1 ..];
                     break;
+                }
+
+                if (index >= rest.len) break;
+                const tail = rest[index..];
+                if (try Alpha.parse(tail)) |result| {
+                    const alpha, const end_index = result;
+                    pre_release = .{ .alpha = alpha };
+                    index += end_index;
+                    continue;
+                } else if (try Beta.parse(tail)) |result| {
+                    const beta, const end_index = result;
+                    pre_release = .{ .beta = beta };
+                    index += end_index;
+                    continue;
+                } else if (try RC.parse(tail)) |result| {
+                    const rc, const end_index = result;
+                    pre_release = .{ .rc = rc };
+                    index += end_index;
+                    continue;
+                } else if (try Post.parse(tail)) |result| {
+                    const post, const end_index = result;
+                    post_release = post;
+                    index += end_index;
+                    continue;
+                } else if (try Dev.parse(tail)) |result| {
+                    const dev, const end_index = result;
+                    dev_release = dev;
+                    index += end_index;
+                    continue;
                 }
             } else {
                 if (release_digits >= release_segment.len) {
@@ -130,7 +233,7 @@ const Version = struct {
                 release_segment[release_digits] = char;
                 release_digits += 1;
             }
-            remaining_index += 1;
+            index += 1;
         }
         if (release_digits > 0) {
             try release_segments.append(try std.fmt.parseInt(
@@ -145,6 +248,10 @@ const Version = struct {
             .raw = trimmed_value,
             .epoch = epoch,
             .release = .{ .segments = try release_segments.toOwnedSlice(), .wildcard = wildcard },
+            .pre_release = pre_release,
+            .post_release = post_release,
+            .dev_release = dev_release,
+            .local_version = local_version,
         };
     }
 
@@ -556,4 +663,143 @@ test "Compound" {
     try std.testing.expect(!try subtractive_specifier.matches(std.testing.allocator, "3.3.3"));
     try std.testing.expect(!try subtractive_specifier.matches(std.testing.allocator, "3.4"));
     try std.testing.expect(!try subtractive_specifier.matches(std.testing.allocator, "3.14"));
+}
+
+test "alpha" {
+    const expect_alpha = struct {
+        fn expect_alpha(expected: u8, version: []const u8) !void {
+            const ver = try Version.parse(std.testing.allocator, version, .{});
+            defer ver.deinit();
+            try std.testing.expectEqualDeep(PreRelease{ .alpha = expected }, ver.pre_release);
+        }
+    }.expect_alpha;
+
+    try expect_alpha(0, "3.9.2a");
+    try expect_alpha(0, "3.9.2.a");
+    try expect_alpha(0, "3.9.2-a");
+    try expect_alpha(0, "3.9.2_a");
+
+    try expect_alpha(0, "3.9.2alpha");
+    try expect_alpha(0, "3.9.2.alpha");
+    try expect_alpha(0, "3.9.2-alpha");
+    try expect_alpha(0, "3.9.2_alpha");
+
+    try expect_alpha(1, "3.9.2a1");
+    try expect_alpha(12, "3.9.2alpha12");
+}
+
+test "beta" {
+    const expect_beta = struct {
+        fn expect_beta(expected: u8, version: []const u8) !void {
+            const ver = try Version.parse(std.testing.allocator, version, .{});
+            defer ver.deinit();
+            try std.testing.expectEqualDeep(PreRelease{ .beta = expected }, ver.pre_release);
+        }
+    }.expect_beta;
+
+    try expect_beta(0, "3.9.2b");
+    try expect_beta(0, "3.9.2.b");
+    try expect_beta(0, "3.9.2-b");
+    try expect_beta(0, "3.9.2_b");
+
+    try expect_beta(0, "3.9.2beta");
+    try expect_beta(0, "3.9.2.beta");
+    try expect_beta(0, "3.9.2-beta");
+    try expect_beta(0, "3.9.2_beta");
+
+    try expect_beta(1, "3.9.2b1");
+    try expect_beta(12, "3.9.2beta12");
+}
+
+test "rc" {
+    const expect_rc = struct {
+        fn expect_rc(expected: u8, version: []const u8) !void {
+            const ver = try Version.parse(std.testing.allocator, version, .{});
+            defer ver.deinit();
+            try std.testing.expectEqualDeep(PreRelease{ .rc = expected }, ver.pre_release);
+        }
+    }.expect_rc;
+
+    try expect_rc(0, "3.9.2c");
+    try expect_rc(0, "3.9.2.c");
+    try expect_rc(0, "3.9.2-c");
+    try expect_rc(0, "3.9.2_c");
+
+    try expect_rc(0, "3.9.2rc");
+    try expect_rc(0, "3.9.2.rc");
+    try expect_rc(0, "3.9.2-rc");
+    try expect_rc(0, "3.9.2_rc");
+
+    try expect_rc(1, "3.9.2c1");
+    try expect_rc(2, "3.9.2pre2");
+    try expect_rc(3, "3.9.2preview3");
+    try expect_rc(12, "3.9.2rc12");
+}
+
+test "post" {
+    const expect_post = struct {
+        fn expect_post(expected: u8, version: []const u8) !void {
+            const ver = try Version.parse(std.testing.allocator, version, .{});
+            defer ver.deinit();
+            try std.testing.expectEqual(expected, ver.post_release);
+        }
+    }.expect_post;
+
+    try expect_post(0, "3.9.2r");
+    try expect_post(0, "3.9.2.r");
+    try expect_post(0, "3.9.2-r");
+    try expect_post(0, "3.9.2_r");
+
+    try expect_post(0, "3.9.2post");
+    try expect_post(0, "3.9.2.post");
+    try expect_post(0, "3.9.2-post");
+    try expect_post(0, "3.9.2_post");
+
+    try expect_post(1, "3.9.2r1");
+    try expect_post(2, "3.9.2rev2");
+    try expect_post(12, "3.9.2post12");
+}
+
+test "dev" {
+    const expect_dev = struct {
+        fn expect_dev(expected: u8, version: []const u8) !void {
+            const ver = try Version.parse(std.testing.allocator, version, .{});
+            defer ver.deinit();
+            try std.testing.expectEqual(expected, ver.dev_release);
+        }
+    }.expect_dev;
+
+    try expect_dev(0, "3.9.2dev");
+    try expect_dev(0, "3.9.2.dev");
+    try expect_dev(0, "3.9.2-dev");
+    try expect_dev(0, "3.9.2_dev");
+
+    try expect_dev(1, "3.9.2dev1");
+    try expect_dev(2, "3.9.2-dev2");
+    try expect_dev(12, "3.9.2.dev12");
+}
+
+test "local" {
+    const expect_local = struct {
+        fn expect_local(expected: []const u8, version: []const u8) !void {
+            const ver = try Version.parse(std.testing.allocator, version, .{});
+            defer ver.deinit();
+            try std.testing.expect(ver.local_version != null);
+            try std.testing.expectEqualStrings(expected, ver.local_version.?);
+        }
+    }.expect_local;
+
+    try expect_local("foo", "3.9.2+foo");
+    try expect_local("foo.bar", "3.9.2+foo.bar");
+    try expect_local("foo.123", "3.9.2+foo.123");
+}
+
+test "complex version" {
+    const ver = try Version.parse(std.testing.allocator, "3.9.2rc1.post2.dev3+baz4", .{});
+    defer ver.deinit();
+
+    try std.testing.expectEqualDeep(PreRelease{ .rc = 1 }, ver.pre_release);
+    try std.testing.expectEqualDeep(2, ver.post_release);
+    try std.testing.expectEqualDeep(3, ver.dev_release);
+    try std.testing.expectEqualDeep("baz4", ver.local_version);
 }
