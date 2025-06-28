@@ -175,7 +175,11 @@ const Version = struct {
         while (index < rest.len) {
             const char = rest[index];
             if (!std.ascii.isDigit(char)) {
-                if (pre_release == null and post_release == null and dev_release == null and local_version == null) {
+                if (pre_release == null and
+                    post_release == null and
+                    dev_release == null and
+                    local_version == null)
+                {
                     if (release_digits == 0) {
                         return error.InvalidVersion;
                     }
@@ -197,6 +201,7 @@ const Version = struct {
                             return error.InvalidVersion;
                         }
                         wildcard = true;
+                        index += 2;
                         break;
                     } else if (std.ascii.isDigit(next_char)) {
                         index += 1;
@@ -206,7 +211,17 @@ const Version = struct {
                     if (index + 1 >= rest.len) {
                         return error.InvalidVersion;
                     }
-                    local_version = rest[index + 1 ..];
+                    const local_version_value = rest[index + 1 ..];
+                    for (local_version_value, 0..) |ch, idx| {
+                        if (ch != '.' and !std.ascii.isAlphanumeric(ch)) {
+                            return error.InvalidVersion;
+                        }
+                        if (ch == '.' and (idx == 0 or idx == local_version_value.len - 1)) {
+                            return error.InvalidVersion;
+                        }
+                    }
+                    local_version = local_version_value;
+                    index += local_version_value.len + 1;
                     break;
                 }
 
@@ -235,7 +250,7 @@ const Version = struct {
                     dev_release, const end_index = result;
                     index += end_index;
                     continue;
-                }
+                } else return error.InvalidVersion;
             } else {
                 if (release_digits >= release_segment.len) {
                     return error.UnexpectedVersion;
@@ -253,6 +268,9 @@ const Version = struct {
             ));
         }
 
+        if (release_segments.items.len == 0) return error.InvalidVersion;
+        if (index < rest.len) return error.InvalidVersion;
+
         return .{
             .allocator = allocator,
             .raw = trimmed_value,
@@ -267,6 +285,48 @@ const Version = struct {
 
     fn deinit(self: @This()) void {
         self.allocator.free(self.release.segments);
+    }
+
+    pub fn format(
+        self: Version,
+        fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        if (self.epoch) |epoch| {
+            try std.fmt.format(writer, "{d}", .{epoch});
+            try writer.writeByte('!');
+        }
+        for (self.release.segments, 0..) |release_segment, idx| {
+            if (idx > 0) {
+                try writer.writeByte('.');
+            }
+            try std.fmt.format(writer, "{d}", .{release_segment});
+        }
+        if (self.pre_release) |pre_release| {
+            const label, const val = res: switch (pre_release) {
+                .rc => |val| break :res .{ "rc", val },
+                .beta => |val| break :res .{ "b", val },
+                .alpha => |val| break :res .{ "a", val },
+            };
+            try writer.writeAll(label);
+            try std.fmt.format(writer, "{d}", .{val});
+        }
+        if (self.post_release) |post_release| {
+            try writer.writeByte('.');
+            try writer.writeAll("post");
+            try std.fmt.format(writer, "{d}", .{post_release});
+        }
+        if (self.dev_release) |dev_release| {
+            try writer.writeByte('.');
+            try writer.writeAll("dev");
+            try std.fmt.format(writer, "{d}", .{dev_release});
+        }
+        if (self.local_version) |local_version| {
+            try writer.writeByte('+');
+            try writer.writeAll(local_version);
+        }
     }
 
     fn major(self: Version) u16 {
@@ -688,132 +748,132 @@ test "Compound" {
 }
 
 test "alpha" {
-    const expect_alpha = struct {
-        fn expect_alpha(expected: u8, version: []const u8) !void {
+    const expectAlpha = struct {
+        fn expectAlpha(expected: u8, version: []const u8) !void {
             const ver = try Version.parse(std.testing.allocator, version, .{});
             defer ver.deinit();
             try std.testing.expectEqualDeep(PreRelease{ .alpha = expected }, ver.pre_release);
         }
-    }.expect_alpha;
+    }.expectAlpha;
 
-    try expect_alpha(0, "3.9.2a");
-    try expect_alpha(0, "3.9.2.a");
-    try expect_alpha(0, "3.9.2-a");
-    try expect_alpha(0, "3.9.2_a");
+    try expectAlpha(0, "3.9.2a");
+    try expectAlpha(0, "3.9.2.a");
+    try expectAlpha(0, "3.9.2-a");
+    try expectAlpha(0, "3.9.2_a");
 
-    try expect_alpha(0, "3.9.2alpha");
-    try expect_alpha(0, "3.9.2.alpha");
-    try expect_alpha(0, "3.9.2-alpha");
-    try expect_alpha(0, "3.9.2_alpha");
+    try expectAlpha(0, "3.9.2alpha");
+    try expectAlpha(0, "3.9.2.alpha");
+    try expectAlpha(0, "3.9.2-alpha");
+    try expectAlpha(0, "3.9.2_alpha");
 
-    try expect_alpha(1, "3.9.2a1");
-    try expect_alpha(12, "3.9.2alpha12");
+    try expectAlpha(1, "3.9.2a1");
+    try expectAlpha(12, "3.9.2alpha12");
 }
 
 test "beta" {
-    const expect_beta = struct {
-        fn expect_beta(expected: u8, version: []const u8) !void {
+    const expectBeta = struct {
+        fn expectBeta(expected: u8, version: []const u8) !void {
             const ver = try Version.parse(std.testing.allocator, version, .{});
             defer ver.deinit();
             try std.testing.expectEqualDeep(PreRelease{ .beta = expected }, ver.pre_release);
         }
-    }.expect_beta;
+    }.expectBeta;
 
-    try expect_beta(0, "3.9.2b");
-    try expect_beta(0, "3.9.2.b");
-    try expect_beta(0, "3.9.2-b");
-    try expect_beta(0, "3.9.2_b");
+    try expectBeta(0, "3.9.2b");
+    try expectBeta(0, "3.9.2.b");
+    try expectBeta(0, "3.9.2-b");
+    try expectBeta(0, "3.9.2_b");
 
-    try expect_beta(0, "3.9.2beta");
-    try expect_beta(0, "3.9.2.beta");
-    try expect_beta(0, "3.9.2-beta");
-    try expect_beta(0, "3.9.2_beta");
+    try expectBeta(0, "3.9.2beta");
+    try expectBeta(0, "3.9.2.beta");
+    try expectBeta(0, "3.9.2-beta");
+    try expectBeta(0, "3.9.2_beta");
 
-    try expect_beta(1, "3.9.2b1");
-    try expect_beta(12, "3.9.2beta12");
+    try expectBeta(1, "3.9.2b1");
+    try expectBeta(12, "3.9.2beta12");
 }
 
 test "rc" {
-    const expect_rc = struct {
-        fn expect_rc(expected: u8, version: []const u8) !void {
+    const expectRc = struct {
+        fn expectRc(expected: u8, version: []const u8) !void {
             const ver = try Version.parse(std.testing.allocator, version, .{});
             defer ver.deinit();
             try std.testing.expectEqualDeep(PreRelease{ .rc = expected }, ver.pre_release);
         }
-    }.expect_rc;
+    }.expectRc;
 
-    try expect_rc(0, "3.9.2c");
-    try expect_rc(0, "3.9.2.c");
-    try expect_rc(0, "3.9.2-c");
-    try expect_rc(0, "3.9.2_c");
+    try expectRc(0, "3.9.2c");
+    try expectRc(0, "3.9.2.c");
+    try expectRc(0, "3.9.2-c");
+    try expectRc(0, "3.9.2_c");
 
-    try expect_rc(0, "3.9.2rc");
-    try expect_rc(0, "3.9.2.rc");
-    try expect_rc(0, "3.9.2-rc");
-    try expect_rc(0, "3.9.2_rc");
+    try expectRc(0, "3.9.2rc");
+    try expectRc(0, "3.9.2.rc");
+    try expectRc(0, "3.9.2-rc");
+    try expectRc(0, "3.9.2_rc");
 
-    try expect_rc(1, "3.9.2c1");
-    try expect_rc(2, "3.9.2pre2");
-    try expect_rc(3, "3.9.2preview3");
-    try expect_rc(12, "3.9.2rc12");
+    try expectRc(1, "3.9.2c1");
+    try expectRc(2, "3.9.2pre2");
+    try expectRc(3, "3.9.2preview3");
+    try expectRc(12, "3.9.2rc12");
 }
 
 test "post" {
-    const expect_post = struct {
-        fn expect_post(expected: u8, version: []const u8) !void {
+    const expectPost = struct {
+        fn expectPost(expected: u8, version: []const u8) !void {
             const ver = try Version.parse(std.testing.allocator, version, .{});
             defer ver.deinit();
             try std.testing.expectEqual(expected, ver.post_release);
         }
-    }.expect_post;
+    }.expectPost;
 
-    try expect_post(0, "3.9.2r");
-    try expect_post(0, "3.9.2.r");
-    try expect_post(0, "3.9.2-r");
-    try expect_post(0, "3.9.2_r");
+    try expectPost(0, "3.9.2r");
+    try expectPost(0, "3.9.2.r");
+    try expectPost(0, "3.9.2-r");
+    try expectPost(0, "3.9.2_r");
 
-    try expect_post(0, "3.9.2post");
-    try expect_post(0, "3.9.2.post");
-    try expect_post(0, "3.9.2-post");
-    try expect_post(0, "3.9.2_post");
+    try expectPost(0, "3.9.2post");
+    try expectPost(0, "3.9.2.post");
+    try expectPost(0, "3.9.2-post");
+    try expectPost(0, "3.9.2_post");
 
-    try expect_post(1, "3.9.2r1");
-    try expect_post(2, "3.9.2rev2");
-    try expect_post(12, "3.9.2post12");
+    try expectPost(1, "3.9.2r1");
+    try expectPost(2, "3.9.2rev2");
+    try expectPost(12, "3.9.2post12");
 }
 
 test "dev" {
-    const expect_dev = struct {
-        fn expect_dev(expected: u8, version: []const u8) !void {
+    const expectDev = struct {
+        fn expectDev(expected: u8, version: []const u8) !void {
             const ver = try Version.parse(std.testing.allocator, version, .{});
             defer ver.deinit();
             try std.testing.expectEqual(expected, ver.dev_release);
         }
-    }.expect_dev;
+    }.expectDev;
 
-    try expect_dev(0, "3.9.2dev");
-    try expect_dev(0, "3.9.2.dev");
-    try expect_dev(0, "3.9.2-dev");
-    try expect_dev(0, "3.9.2_dev");
+    try expectDev(0, "3.9.2dev");
+    try expectDev(0, "3.9.2.dev");
+    try expectDev(0, "3.9.2-dev");
+    try expectDev(0, "3.9.2_dev");
 
-    try expect_dev(1, "3.9.2dev1");
-    try expect_dev(2, "3.9.2-dev2");
-    try expect_dev(12, "3.9.2.dev12");
+    try expectDev(1, "3.9.2dev1");
+    try expectDev(2, "3.9.2-dev2");
+    try expectDev(12, "3.9.2.dev12");
 }
 
 test "local" {
-    const expect_local = struct {
-        fn expect_local(expected: []const u8, version: []const u8) !void {
+    const expectLocal = struct {
+        fn expectLocal(expected: []const u8, version: []const u8) !void {
             const ver = try Version.parse(std.testing.allocator, version, .{});
             defer ver.deinit();
             try std.testing.expect(ver.local_version != null);
             try std.testing.expectEqualStrings(expected, ver.local_version.?);
         }
-    }.expect_local;
+    }.expectLocal;
 
-    try expect_local("foo", "3.9.2+foo");
-    try expect_local("foo.bar", "3.9.2+foo.bar");
-    try expect_local("foo.123", "3.9.2+foo.123");
+    try expectLocal("foo", "3.9.2+foo");
+    try expectLocal("foo.bar", "3.9.2+foo.bar");
+    try expectLocal("foo.123", "3.9.2+foo.123");
 }
 
 test "complex version" {
@@ -827,4 +887,53 @@ test "complex version" {
     try std.testing.expectEqualDeep(2, ver.post_release);
     try std.testing.expectEqualDeep(3, ver.dev_release);
     try std.testing.expectEqualDeep("baz4", ver.local_version);
+}
+
+test "invalid versions" {
+    const expectInvalidVersion = struct {
+        fn expectInvalidVersion(text: []const u8) !void {
+            const version = Version.parse(std.testing.allocator, text, .{}) catch |err| {
+                try std.testing.expectEqual(error.InvalidVersion, err);
+                return;
+            };
+            defer version.deinit();
+            std.debug.print(
+                "Expected {s} to parse as an invalid version, but got: {s}\n",
+                .{ text, version },
+            );
+            try std.testing.expect(false);
+        }
+    }.expectInvalidVersion;
+
+    try expectInvalidVersion("");
+    try expectInvalidVersion("v");
+    try expectInvalidVersion("0!");
+    try expectInvalidVersion("1d");
+    try expectInvalidVersion("1bob");
+    try expectInvalidVersion("1+");
+    try expectInvalidVersion("1+!");
+    try expectInvalidVersion("1+#");
+    try expectInvalidVersion("1+.local");
+    try expectInvalidVersion("1+local.");
+}
+
+test "version format" {
+    const expectFormat = struct {
+        fn expectFormat(text: []const u8, expected_format: []const u8) !void {
+            const version = try Version.parse(std.testing.allocator, text, .{});
+            defer version.deinit();
+            const actual_format = try std.fmt.allocPrint(std.testing.allocator, "{s}", .{version});
+            defer std.testing.allocator.free(actual_format);
+            try std.testing.expectEqualStrings(expected_format, actual_format);
+        }
+    }.expectFormat;
+
+    try expectFormat("1.2.3", "1.2.3");
+    try expectFormat("v0!1.2.3", "0!1.2.3");
+    try expectFormat("v1.2.3", "1.2.3");
+    try expectFormat("1.2.3.rc0", "1.2.3rc0");
+    try expectFormat("1.2.3.beta1", "1.2.3b1");
+    try expectFormat("1.2.3-a2", "1.2.3a2");
+    try expectFormat("1.2.3-r3", "1.2.3.post3");
+    try expectFormat("1.2.3dev4", "1.2.3.dev4");
 }
