@@ -12,6 +12,18 @@ const Release = struct {
     segments: []const u16,
     wildcard: bool,
 
+    fn major(self: Release) u16 {
+        return self.segments[0];
+    }
+
+    fn minor(self: Release) u16 {
+        return if (self.segments.len >= 2) self.segments[1] else 0;
+    }
+
+    fn patch(self: Release) u16 {
+        return if (self.segments.len >= 3) self.segments[2] else 0;
+    }
+
     fn eq(self: Release, other: Release) bool {
         const release_segments = @max(self.segments.len, other.segments.len);
         for (0..release_segments) |index| {
@@ -255,6 +267,18 @@ const Version = struct {
 
     fn deinit(self: @This()) void {
         self.allocator.free(self.release.segments);
+    }
+
+    fn major(self: Version) u16 {
+        return self.release.major();
+    }
+
+    fn minor(self: Version) u16 {
+        return self.release.minor();
+    }
+
+    fn patch(self: Version) u16 {
+        return self.release.patch();
     }
 
     fn compatible(self: Version, other: Version) bool {
@@ -793,9 +817,12 @@ test "local" {
 }
 
 test "complex version" {
-    const ver = try Version.parse(std.testing.allocator, "3.9.2rc1.post2.dev3+baz4", .{});
+    const ver = try Version.parse(std.testing.allocator, "3.9rc1.post2.dev3+baz4", .{});
     defer ver.deinit();
 
+    try std.testing.expectEqual(3, ver.major());
+    try std.testing.expectEqual(9, ver.minor());
+    try std.testing.expectEqual(0, ver.patch());
     try std.testing.expectEqualDeep(PreRelease{ .rc = 1 }, ver.pre_release);
     try std.testing.expectEqualDeep(2, ver.post_release);
     try std.testing.expectEqualDeep(3, ver.dev_release);
