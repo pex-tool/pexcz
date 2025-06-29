@@ -3,6 +3,7 @@ const std = @import("std");
 const InterpreterConstraints = @import("lib/InterpreterConstraints.zig");
 const ProjectName = @import("lib/ProjectName.zig");
 const Specifier = @import("lib/Specifier.zig");
+const Version = @import("lib/Version.zig");
 const WheelInfo = @import("lib/WheelInfo.zig");
 const interpreter = @import("lib/interpreter.zig");
 const string = @import("lib/string.zig");
@@ -24,6 +25,7 @@ test {
     _ = InterpreterConstraints;
     _ = ProjectName;
     _ = Specifier;
+    _ = Version;
     _ = WheelInfo;
     _ = cache;
     _ = interpreter;
