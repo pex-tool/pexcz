@@ -5,6 +5,7 @@ const ProjectName = @import("lib/ProjectName.zig");
 const Specifier = @import("lib/Specifier.zig");
 const WheelInfo = @import("lib/WheelInfo.zig");
 const interpreter = @import("lib/interpreter.zig");
+const string = @import("lib/string.zig");
 
 pub const Allocator = @import("lib/heap.zig").Allocator;
 pub const Environ = @import("lib/process.zig").Environ;
@@ -26,4 +27,5 @@ test {
     _ = WheelInfo;
     _ = cache;
     _ = interpreter;
+    _ = string;
 }
