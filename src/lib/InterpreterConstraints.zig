@@ -170,6 +170,7 @@ const Pythons = struct {
         var pypy311: ?std.json.Parsed(Interpreter) = null;
         if (pypy311) |interp| interp.deinit();
 
+        // N.B.: There are currently no PyPy builds for Windows ARM.
         if (!windows_arm) {
             pypy38 = try interpreter(allocator, "pypy3.8", .{});
             pypy310 = try interpreter(allocator, "pypy3.10", .{});
