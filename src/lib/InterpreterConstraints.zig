@@ -103,27 +103,35 @@ fn interpreter(
 ) !std.json.Parsed(Interpreter) {
     const subprocess = @import("subprocess.zig");
     const CheckFind = struct {
-        pub fn printError() void {
-            std.debug.print("Failed to find interpreter.\n", .{});
+        python_spec: []const u8,
+        install: bool,
+        pub fn printError(self: @This()) void {
+            std.debug.print(
+                "Failed to find interpreter for {s}{s}\n",
+                .{ self.python_spec, if (self.install) "; attempting install..." else "." },
+            );
         }
     };
     const output = subprocess.run(
         allocator,
         &.{ "uv", "python", "find", spec },
         subprocess.CheckOutput(CheckFind.printError),
-        .{ .extra_child_run_args = .{ .max_output_bytes = std.fs.max_path_bytes + 2 } },
+        .{
+            .extra_child_run_args = .{ .max_output_bytes = std.fs.max_path_bytes + 2 },
+            .print_error_args = .{ .python_spec = spec, .install = options.install },
+        },
     ) catch |err| {
         if (options.install) {
             const CheckInstall = struct {
-                pub fn printError() void {
-                    std.debug.print("Failed to install interpreter.\n", .{});
+                pub fn printError(python_spec: []const u8) void {
+                    std.debug.print("Failed to install interpreter for {s}.\n", .{python_spec});
                 }
             };
             try subprocess.run(
                 allocator,
                 &.{ "uv", "python", "install", spec },
                 subprocess.CheckCall(CheckInstall.printError),
-                .{},
+                .{ .print_error_args = spec },
             );
             return interpreter(allocator, spec, .{ .install = false });
         } else return err;
