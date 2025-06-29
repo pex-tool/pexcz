@@ -294,8 +294,7 @@ pub fn format(
 ) !void {
     _ = fmt;
     if (self.epoch) |epoch| {
-        try std.fmt.format(writer, "{d}", .{epoch});
-        try writer.writeByte('!');
+        try std.fmt.format(writer, "{d}!", .{epoch});
     }
     for (self.release.segments, 0..) |release_segment, idx| {
         if (idx > 0) {
@@ -309,18 +308,13 @@ pub fn format(
             .beta => |val| break :res .{ "b", val },
             .alpha => |val| break :res .{ "a", val },
         };
-        try writer.writeAll(label);
-        try std.fmt.format(writer, "{d}", .{val});
+        try std.fmt.format(writer, "{s}{d}", .{label, val});
     }
     if (self.post_release) |post_release| {
-        try writer.writeByte('.');
-        try writer.writeAll("post");
-        try std.fmt.format(writer, "{d}", .{post_release});
+        try std.fmt.format(writer, ".post{d}", .{post_release});
     }
     if (self.dev_release) |dev_release| {
-        try writer.writeByte('.');
-        try writer.writeAll("dev");
-        try std.fmt.format(writer, "{d}", .{dev_release});
+        try std.fmt.format(writer, ".dev{d}", .{dev_release});
     }
     if (self.local_version) |local_version| {
         try writer.writeByte('+');
