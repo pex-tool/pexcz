@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const InterpreterConstraints = @import("lib/InterpreterConstraints.zig");
 const ProjectName = @import("lib/ProjectName.zig");
 const Specifier = @import("lib/Specifier.zig");
 const WheelInfo = @import("lib/WheelInfo.zig");
@@ -19,6 +20,7 @@ pub const bootPexZWindows = boot.bootPexZWindows;
 pub const mount = boot.mount;
 
 test {
+    _ = InterpreterConstraints;
     _ = ProjectName;
     _ = Specifier;
     _ = WheelInfo;
