@@ -204,8 +204,8 @@ pub const VersionInfo = struct {
     major: u8,
     minor: u8,
     micro: u8,
-    releaselevel: []const u8,
-    serial: u8,
+    releaselevel: []const u8 = "final",
+    serial: u8 = 0,
 };
 
 pub const Interpreter = struct {
@@ -363,14 +363,23 @@ pub const Interpreter = struct {
 };
 
 pub const InterpreterIter = struct {
+    const Candidate = struct {
+        python_exe: []const u8,
+        allocator: ?std.mem.Allocator = null,
+
+        fn deinit(self: @This()) void {
+            if (self.allocator) |allocator| allocator.free(self.python_exe);
+        }
+    };
+
     allocator: std.mem.Allocator,
     index: usize = 0,
-    candidates: []const []const u8,
+    candidates: []const Candidate,
 
     const Self = @This();
 
-    fn fromSearchPath(allocator: std.mem.Allocator, search_path: ?[]const []const u8) !Self {
-        var path = search_path;
+    pub fn fromSearchPath(allocator: std.mem.Allocator, options: struct { search_path: ?[]const []const u8 = null }) !Self {
+        var path = options.search_path;
         if (path == null) {
             if (try getenv(allocator, "PATH")) |path_entries| {
                 defer path_entries.deinit();
@@ -391,27 +400,50 @@ pub const InterpreterIter = struct {
             }
         }
         defer {
-            if (search_path == null and path != null) {
-                for (path.?) |entry| {
-                    allocator.free(entry);
+            if (options.search_path == null) {
+                if (path) |search_path| {
+                    for (search_path) |entry| {
+                        allocator.free(entry);
+                    }
+                    allocator.free(search_path);
                 }
-                allocator.free(path.?);
             }
         }
 
-        if (path == null) {
-            return error.NoSearchPath;
-        }
+        const search_path = path orelse return error.NoSearchPath;
 
-        var candidates = std.ArrayList([]const u8).init(allocator);
+        var candidates = std.ArrayList(Candidate).init(allocator);
         errdefer {
             for (candidates.items) |candidate| {
-                allocator.free(candidate);
+                candidate.deinit();
             }
             candidates.deinit();
         }
 
-        for (path.?) |entry| {
+        for (search_path) |entry| {
+            if (std.fs.cwd().statFile(entry) catch null) |entry_stat| {
+                switch (entry_stat.kind) {
+                    .file => {
+                        try candidates.append(.{ .python_exe = entry });
+                        log.debug("... explicit candidate: {s}", .{entry});
+                        continue;
+                    },
+                    .sym_link => {
+                        if (std.fs.cwd().realpathAlloc(allocator, entry) catch null) |realpath| {
+                            defer allocator.free(realpath);
+                            if (std.fs.cwd().statFile(realpath) catch null) |stat| {
+                                if (stat.kind == .file) {
+                                    try candidates.append(.{ .python_exe = entry });
+                                    log.debug("... explicit candidate: {s}", .{entry});
+                                    continue;
+                                }
+                            }
+                        }
+                    },
+                    else => {},
+                }
+            }
+
             var entry_dir = std.fs.cwd().openDir(entry, .{ .iterate = true }) catch |err| {
                 log.debug("Cannot open PATH entry {s}, continuing: {}", .{ entry, err });
                 continue;
@@ -419,7 +451,6 @@ pub const InterpreterIter = struct {
             defer entry_dir.close();
 
             if (native_os == .windows) {
-                // TODO: XXX: What is pypy called on Windows? - double check.
                 for ([_][]const u8{
                     "python.exe",
                     "pythonw.exe",
@@ -428,7 +459,7 @@ pub const InterpreterIter = struct {
                 }) |exe_name| {
                     if (entry_dir.access(exe_name, .{})) |_| {
                         const candidate = try std.fs.path.join(allocator, &.{ entry, exe_name });
-                        try candidates.append(candidate);
+                        try candidates.append(.{ .python_exe = candidate, .allocator = allocator });
                     } else |_| {}
                 }
             } else {
@@ -497,8 +528,8 @@ pub const InterpreterIter = struct {
                                         allocator,
                                         &.{ entry, dir_ent.name },
                                     );
+                                    try candidates.append(.{ .python_exe = candidate, .allocator = allocator });
                                     log.debug("... candidate: {s}", .{candidate});
-                                    try candidates.append(candidate);
                                 } else |_| {}
                             }
                         },
@@ -517,8 +548,8 @@ pub const InterpreterIter = struct {
         }
         defer self.index += 1;
         const candidate = self.candidates[self.index];
-        return Interpreter.identify(self.allocator, candidate) catch |err| {
-            log.debug("Candidate {s} failed identification: {}", .{ candidate, err });
+        return Interpreter.identify(self.allocator, candidate.python_exe) catch |err| {
+            log.debug("Candidate {s} failed identification: {}", .{ candidate.python_exe, err });
             // TODO: XXX: Avoid recursion here - flatten with a loop.
             self.index += 1;
             return self.next();
@@ -527,7 +558,7 @@ pub const InterpreterIter = struct {
 
     pub fn deinit(self: Self) void {
         for (self.candidates) |candidate| {
-            self.allocator.free(candidate);
+            candidate.deinit();
         }
         self.allocator.free(self.candidates);
     }
@@ -536,7 +567,7 @@ pub const InterpreterIter = struct {
 test "compare with packaging" {
     const Virtualenv = @import("Virtualenv.zig");
 
-    var interpreters = try InterpreterIter.fromSearchPath(std.testing.allocator, null);
+    var interpreters = try InterpreterIter.fromSearchPath(std.testing.allocator, .{});
     defer interpreters.deinit();
 
     var seen = std.BufSet.init(std.testing.allocator);
@@ -666,4 +697,127 @@ test "compare with packaging" {
 
     // We should have found at least one Python interpreter to test against.
     try std.testing.expect(seen.count() > 0);
+}
+
+test "fromSearchPath" {
+    const tmp = std.testing.tmpDir(.{});
+
+    const tmp_dir_path = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(tmp_dir_path);
+
+    var env = try std.process.getEnvMap(std.testing.allocator);
+    defer env.deinit();
+    try env.put("UV_PYTHON_INSTALL_DIR", ".");
+
+    var pex_python_path = try std.ArrayList([]const u8).initCapacity(std.testing.allocator, 2);
+    defer {
+        for (pex_python_path.items) |python_exe| {
+            std.testing.allocator.free(python_exe);
+        }
+        pex_python_path.deinit();
+    }
+
+    for ([_][]const u8{ "3.12.11", "3.13.5" }, 0..) |version, index| {
+        const CheckInstall = struct {
+            fn printError(ver: []const u8) void {
+                std.debug.print(
+                    "Failed to install a uv managed Python {s} to exercise PEX_PYTHON_PATH " ++
+                        "handling.\n",
+                    .{ver},
+                );
+            }
+        };
+        try subprocess.run(
+            std.testing.allocator,
+            &.{ "uv", "python", "install", "--managed-python", version, "--install-dir", "." },
+            subprocess.CheckCall(CheckInstall.printError),
+            .{
+                .extra_child_run_args = .{ .cwd = tmp_dir_path, .cwd_dir = tmp.dir },
+                .print_error_args = version,
+            },
+        );
+
+        const CheckFind = struct {
+            fn printError(ver: []const u8) void {
+                std.debug.print(
+                    "Failed to find a uv managed Python {s} to exercise PEX_PYTHON_PATH " ++
+                        "handling.\n",
+                    .{ver},
+                );
+            }
+        };
+        const output = try subprocess.run(
+            std.testing.allocator,
+            &.{ "uv", "python", "find", "--system" },
+            subprocess.CheckOutput(CheckFind.printError),
+            .{
+                .extra_child_run_args = .{
+                    .env_map = &env,
+                    .cwd = tmp_dir_path,
+                    .cwd_dir = tmp.dir,
+                },
+                .print_error_args = version,
+            },
+        );
+        defer std.testing.allocator.free(output);
+        const python_exe = std.mem.trim(u8, output, "\r\n");
+        try pex_python_path.append(try std.testing.allocator.dupe(
+            u8,
+            if (index % 2 == 0) python_exe else std.fs.path.dirname(python_exe).?,
+        ));
+    }
+
+    var interpreter_iter = try InterpreterIter.fromSearchPath(
+        std.testing.allocator,
+        .{ .search_path = pex_python_path.items },
+    );
+    defer interpreter_iter.deinit();
+
+    var interpreters = try std.ArrayList(std.json.Parsed(Interpreter)).initCapacity(
+        std.testing.allocator,
+        2,
+    );
+    defer {
+        for (interpreters.items) |interpreter| {
+            interpreter.deinit();
+        }
+        interpreters.deinit();
+    }
+
+    while (interpreter_iter.next()) |interpreter| {
+        try interpreters.append(interpreter);
+    }
+
+    const expected_python313_exe_names: []const []const u8 = res: {
+        if (native_os == .windows) {
+            break :res &.{ "python.exe", "pythonw.exe" };
+        } else {
+            break :res &.{ "python", "python3", "python3.13" };
+        }
+    };
+
+    try std.testing.expectEqual(expected_python313_exe_names.len + 1, interpreters.items.len);
+
+    const python312 = interpreters.items[0];
+    try std.testing.expectEqualDeep(
+        VersionInfo{ .major = 3, .minor = 12, .micro = 11 },
+        python312.value.version,
+    );
+
+    var expected_python_exe_names = std.StringHashMap(void).init(std.testing.allocator);
+    defer expected_python_exe_names.deinit();
+    for (expected_python313_exe_names) |python_exe| {
+        try expected_python_exe_names.put(python_exe, {});
+    }
+
+    for (interpreters.items[1..]) |python313| {
+        try std.testing.expectEqualDeep(
+            VersionInfo{ .major = 3, .minor = 13, .micro = 5 },
+            python313.value.version,
+        );
+        try std.testing.expect(
+            expected_python_exe_names.remove(std.fs.path.basename(python313.value.path)),
+        );
+    }
+    try std.testing.expectEqual(0, expected_python_exe_names.count());
 }
