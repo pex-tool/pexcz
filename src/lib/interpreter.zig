@@ -707,6 +707,7 @@ test "fromSearchPath" {
 
     var env = try std.process.getEnvMap(std.testing.allocator);
     defer env.deinit();
+    env.remove("UV_NO_MANAGED_PYTHON");
     try env.put("UV_PYTHON_INSTALL_DIR", ".");
 
     var pex_python_path = try std.ArrayList([]const u8).initCapacity(std.testing.allocator, 2);
