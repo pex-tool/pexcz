@@ -7,29 +7,31 @@ fn trim_leading_v(value: []const u8) []const u8 {
 }
 
 pub const Release = struct {
-    segments: []const u16,
-    wildcard: bool,
-
-    fn major(self: Release) u16 {
-        return self.segments[0];
-    }
-
-    fn minor(self: Release) u16 {
-        return if (self.segments.len >= 2) self.segments[1] else 0;
-    }
-
-    fn patch(self: Release) u16 {
-        return if (self.segments.len >= 3) self.segments[2] else 0;
-    }
+    major: u16,
+    minor: ?u8 = null,
+    patch: ?u8 = null,
+    additional_segments: ?[]const u8 = null,
+    wildcard: bool = false,
 
     fn eq(self: Release, other: Release) bool {
-        const release_segments = @max(self.segments.len, other.segments.len);
+        if (self.major != other.major) return false;
+
+        if (self.minor == null and self.wildcard) return true;
+        if ((self.minor orelse 0) != (other.minor orelse 0)) return false;
+
+        if (self.patch == null and self.wildcard) return true;
+        if ((self.patch orelse 0) != (other.patch orelse 0)) return false;
+
+        const segment_count = if (self.additional_segments) |segs| segs.len else 0;
+        const other_segment_count = if (other.additional_segments) |segs| segs.len else 0;
+        const release_segments = @max(segment_count, other_segment_count);
         for (0..release_segments) |index| {
-            if (self.wildcard and index >= self.segments.len) break;
-            const my_segment = if (index < self.segments.len) self.segments[index] else 0;
-            const other_segment = if (index < other.segments.len) other.segments[index] else 0;
+            if (self.wildcard and index >= segment_count) break;
+            const my_segment = if (index < segment_count) self.additional_segments.?[index] else 0;
+            const other_segment = if (index < other_segment_count) other.additional_segments.?[index] else 0;
             if (my_segment != other_segment) return false;
         }
+
         return true;
     }
 
@@ -38,15 +40,25 @@ pub const Release = struct {
     }
 
     fn gte(self: Release, other: Release) bool {
-        const segment_count = self.segments.len;
-        const other_segment_count = other.segments.len;
+        if (other.major > self.major) return true;
+        if (other.major < self.major) return false;
+
+        if ((other.minor orelse 0) > (self.minor orelse 0)) return true;
+        if ((other.minor orelse 0) < (self.minor orelse 0)) return false;
+
+        if ((other.patch orelse 0) > (self.patch orelse 0)) return true;
+        if ((other.patch orelse 0) < (self.patch orelse 0)) return false;
+
+        const segment_count = if (self.additional_segments) |segs| segs.len else 0;
+        const other_segment_count = if (other.additional_segments) |segs| segs.len else 0;
         const release_segments = @max(segment_count, other_segment_count);
         for (0..release_segments) |index| {
-            const my_segment = if (index < segment_count) self.segments[index] else 0;
-            const other_segment = if (index < other_segment_count) other.segments[index] else 0;
+            const my_segment = if (index < segment_count) self.additional_segments.?[index] else 0;
+            const other_segment = if (index < other_segment_count) other.additional_segments.?[index] else 0;
             if (other_segment > my_segment) return true;
             if (other_segment < my_segment) return false;
         }
+
         return true;
     }
 
@@ -63,18 +75,30 @@ pub const Release = struct {
     }
 
     fn compatible(self: Release, other: Release) bool {
-        const segment_count = self.segments.len;
+        if (self.major != other.major) return false;
 
-        // TODO: XXX: Review: should this return an error?
-        if (segment_count < 2) return false;
-
-        const other_segment_count = other.segments.len;
-        const leading_components = segment_count - 1;
-        for (0..leading_components) |index| {
-            const my_component = self.segments[index];
-            const other_component = if (other_segment_count > index) other.segments[index] else 0;
-            if (my_component != other_component) return false;
+        if (self.patch != null) {
+            if (self.minor) |val| {
+                if ((other.minor orelse 0) != val) return false;
+            }
         }
+
+        if (self.additional_segments != null) {
+            if (self.patch) |val| {
+                if ((other.patch orelse 0) != val) return false;
+            }
+        }
+
+        if (self.additional_segments) |additional_segments| {
+            const other_segment_count = if (other.additional_segments) |segs| segs.len else 0;
+            const leading_components = additional_segments.len - 1;
+            for (0..leading_components) |index| {
+                const my_component = additional_segments[index];
+                const other_component = if (other_segment_count < index) other.additional_segments.?[index] else 0;
+                if (other_component < my_component) return false;
+            }
+        }
+
         return self.gte(other);
     }
 };
@@ -109,7 +133,7 @@ fn NonReleaseSegmentParser(comptime T: type, comptime prefixes: []const []const 
                     }
                 }
                 const suffix = text[start_index..end_index];
-                const segment_value = if (suffix.len == 0) 0 else try std.fmt.parseInt(
+                const segment_value = if (suffix.len == 0) 0 else try std.fmt.parseUnsigned(
                     T,
                     suffix,
                     10,
@@ -127,8 +151,7 @@ const RC = NonReleaseSegmentParser(u8, &.{ "preview", "pre", "rc", "c" });
 const Post = NonReleaseSegmentParser(u8, &.{ "post", "rev", "r" });
 const Dev = NonReleaseSegmentParser(u8, &.{"dev"});
 
-allocator: std.mem.Allocator,
-raw: []const u8,
+raw: ?[]const u8 = null,
 epoch: ?u8 = null,
 release: Release,
 pre_release: ?PreRelease = null,
@@ -150,7 +173,7 @@ pub fn parse(
                 return error.InvalidVersion;
             }
             break :res .{
-                try std.fmt.parseInt(u8, trimmed_value[0..index], 10),
+                try std.fmt.parseUnsigned(u8, trimmed_value[0..index], 10),
                 trimmed_value[index + 1 ..],
             };
         } else {
@@ -158,8 +181,12 @@ pub fn parse(
         }
     };
 
-    var release_segments = try std.ArrayList(u16).initCapacity(allocator, 3);
-    errdefer release_segments.deinit();
+    var major_value: ?u16 = null;
+    var minor_value: ?u8 = null;
+    var patch_value: ?u8 = null;
+
+    var additional_segments = std.ArrayList(u8).init(allocator);
+    errdefer additional_segments.deinit();
 
     var release_segment: [5]u8 = undefined;
     var release_digits: u8 = 0;
@@ -182,11 +209,16 @@ pub fn parse(
                 if (release_digits == 0) {
                     return error.InvalidVersion;
                 }
-                try release_segments.append(try std.fmt.parseInt(
-                    u16,
-                    release_segment[0..release_digits],
-                    10,
-                ));
+                const release_val = release_segment[0..release_digits];
+                if (major_value == null) {
+                    major_value = try std.fmt.parseUnsigned(u16, release_val, 10);
+                } else if (minor_value == null) {
+                    minor_value = try std.fmt.parseUnsigned(u8, release_val, 10);
+                } else if (patch_value == null) {
+                    patch_value = try std.fmt.parseUnsigned(u8, release_val, 10);
+                } else {
+                    try additional_segments.append(try std.fmt.parseUnsigned(u8, release_val, 10));
+                }
                 release_digits = 0;
             }
 
@@ -260,21 +292,32 @@ pub fn parse(
         index += 1;
     }
     if (release_digits > 0) {
-        try release_segments.append(try std.fmt.parseInt(
-            u16,
-            release_segment[0..release_digits],
-            10,
-        ));
+        const release_val = release_segment[0..release_digits];
+        if (major_value == null) {
+            major_value = try std.fmt.parseUnsigned(u16, release_val, 10);
+        } else if (minor_value == null) {
+            minor_value = try std.fmt.parseUnsigned(u8, release_val, 10);
+        } else if (patch_value == null) {
+            patch_value = try std.fmt.parseUnsigned(u8, release_val, 10);
+        } else {
+            try additional_segments.append(try std.fmt.parseUnsigned(u8, release_val, 10));
+        }
     }
 
-    if (release_segments.items.len == 0) return error.InvalidVersion;
+    const major_version = if (major_value) |val| val else return error.InvalidVersion;
     if (index < rest.len) return error.InvalidVersion;
 
+    const segments: ?[]const u8 = if (additional_segments.items.len == 0) null else try additional_segments.toOwnedSlice();
     return .{
-        .allocator = allocator,
         .raw = trimmed_value,
         .epoch = epoch,
-        .release = .{ .segments = try release_segments.toOwnedSlice(), .wildcard = wildcard },
+        .release = .{
+            .major = major_version,
+            .minor = minor_value,
+            .patch = patch_value,
+            .additional_segments = segments,
+            .wildcard = wildcard,
+        },
         .pre_release = pre_release,
         .post_release = post_release,
         .dev_release = dev_release,
@@ -282,8 +325,10 @@ pub fn parse(
     };
 }
 
-pub fn deinit(self: @This()) void {
-    self.allocator.free(self.release.segments);
+pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+    if (self.release.additional_segments) |segments| {
+        allocator.free(segments);
+    }
 }
 
 pub fn format(
@@ -296,11 +341,17 @@ pub fn format(
     if (self.epoch) |epoch| {
         try std.fmt.format(writer, "{d}!", .{epoch});
     }
-    for (self.release.segments, 0..) |release_segment, idx| {
-        if (idx > 0) {
-            try writer.writeByte('.');
+    try std.fmt.format(writer, "{d}", .{self.release.major});
+    if (self.release.minor) |val| {
+        try std.fmt.format(writer, ".{d}", .{val});
+    }
+    if (self.release.patch) |val| {
+        try std.fmt.format(writer, ".{d}", .{val});
+    }
+    if (self.release.additional_segments) |segments| {
+        for (segments) |segment| {
+            try std.fmt.format(writer, ".{d}", .{segment});
         }
-        try std.fmt.format(writer, "{d}", .{release_segment});
     }
     if (self.pre_release) |pre_release| {
         const label, const val = res: switch (pre_release) {
@@ -308,7 +359,7 @@ pub fn format(
             .beta => |val| break :res .{ "b", val },
             .alpha => |val| break :res .{ "a", val },
         };
-        try std.fmt.format(writer, "{s}{d}", .{label, val});
+        try std.fmt.format(writer, "{s}{d}", .{ label, val });
     }
     if (self.post_release) |post_release| {
         try std.fmt.format(writer, ".post{d}", .{post_release});
@@ -323,15 +374,15 @@ pub fn format(
 }
 
 pub fn major(self: Self) u16 {
-    return self.release.major();
+    return self.release.major;
 }
 
-pub fn minor(self: Self) u16 {
-    return self.release.minor();
+pub fn minor(self: Self) u8 {
+    return self.release.minor orelse 0;
 }
 
-pub fn patch(self: Self) u16 {
-    return self.release.patch();
+pub fn patch(self: Self) u8 {
+    return self.release.patch orelse 0;
 }
 
 pub fn compatible(self: Self, other: Self) bool {
@@ -382,7 +433,7 @@ test "alpha" {
     const expectAlpha = struct {
         fn expectAlpha(expected: u8, version: []const u8) !void {
             const ver = try Self.parse(std.testing.allocator, version, .{});
-            defer ver.deinit();
+            defer ver.deinit(std.testing.allocator);
             try std.testing.expectEqualDeep(PreRelease{ .alpha = expected }, ver.pre_release);
         }
     }.expectAlpha;
@@ -405,7 +456,7 @@ test "beta" {
     const expectBeta = struct {
         fn expectBeta(expected: u8, version: []const u8) !void {
             const ver = try Self.parse(std.testing.allocator, version, .{});
-            defer ver.deinit();
+            defer ver.deinit(std.testing.allocator);
             try std.testing.expectEqualDeep(PreRelease{ .beta = expected }, ver.pre_release);
         }
     }.expectBeta;
@@ -428,7 +479,7 @@ test "rc" {
     const expectRc = struct {
         fn expectRc(expected: u8, version: []const u8) !void {
             const ver = try Self.parse(std.testing.allocator, version, .{});
-            defer ver.deinit();
+            defer ver.deinit(std.testing.allocator);
             try std.testing.expectEqualDeep(PreRelease{ .rc = expected }, ver.pre_release);
         }
     }.expectRc;
@@ -453,7 +504,7 @@ test "post" {
     const expectPost = struct {
         fn expectPost(expected: u8, version: []const u8) !void {
             const ver = try Self.parse(std.testing.allocator, version, .{});
-            defer ver.deinit();
+            defer ver.deinit(std.testing.allocator);
             try std.testing.expectEqual(expected, ver.post_release);
         }
     }.expectPost;
@@ -477,7 +528,7 @@ test "dev" {
     const expectDev = struct {
         fn expectDev(expected: u8, version: []const u8) !void {
             const ver = try Self.parse(std.testing.allocator, version, .{});
-            defer ver.deinit();
+            defer ver.deinit(std.testing.allocator);
             try std.testing.expectEqual(expected, ver.dev_release);
         }
     }.expectDev;
@@ -496,7 +547,7 @@ test "local" {
     const expectLocal = struct {
         fn expectLocal(expected: []const u8, version: []const u8) !void {
             const ver = try Self.parse(std.testing.allocator, version, .{});
-            defer ver.deinit();
+            defer ver.deinit(std.testing.allocator);
             try std.testing.expect(ver.local_version != null);
             try std.testing.expectEqualStrings(expected, ver.local_version.?);
         }
@@ -509,7 +560,7 @@ test "local" {
 
 test "complex version" {
     const ver = try Self.parse(std.testing.allocator, "3.9rc1.post2.dev3+baz4", .{});
-    defer ver.deinit();
+    defer ver.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(3, ver.major());
     try std.testing.expectEqual(9, ver.minor());
@@ -527,7 +578,7 @@ test "invalid versions" {
                 try std.testing.expectEqual(error.InvalidVersion, err);
                 return;
             };
-            defer version.deinit();
+            defer version.deinit(std.testing.allocator);
             std.debug.print(
                 "Expected {s} to parse as an invalid version, but got: {s}\n",
                 .{ text, version },
@@ -552,7 +603,7 @@ test "version format" {
     const expectFormat = struct {
         fn expectFormat(text: []const u8, expected_format: []const u8) !void {
             const version = try Self.parse(std.testing.allocator, text, .{});
-            defer version.deinit();
+            defer version.deinit(std.testing.allocator);
             const actual_format = try std.fmt.allocPrint(std.testing.allocator, "{s}", .{version});
             defer std.testing.allocator.free(actual_format);
             try std.testing.expectEqualStrings(expected_format, actual_format);

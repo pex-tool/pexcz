@@ -1,7 +1,13 @@
 const builtin = @import("builtin");
 const std = @import("std");
+
 const Interpreter = @import("interpreter.zig").Interpreter;
+const Release = Version.Release;
+const PreRelease = Version.PreRelease;
 const Specifier = @import("Specifier.zig");
+const Version = @import("Version.zig");
+
+const log = std.log.scoped(.ics);
 
 fn trim_ws(value: []const u8) []const u8 {
     return std.mem.trim(u8, value, " \t\n\r");
@@ -35,14 +41,21 @@ const InterpreterConstraint = struct {
                 return error.InvalidPythonImpl;
             }
         };
-        return .{ .impl = impl, .specifier = try Specifier.parse(allocator, constraint[index..]) };
+        const specifier = try Specifier.parse(allocator, constraint[index..]);
+        for (specifier.clauses) |clause| {
+            switch (clause) {
+                .exact => return error.InvalidOperator,
+                else => {},
+            }
+        }
+        return .{ .impl = impl, .specifier = specifier };
     }
 
     fn deinit(self: InterpreterConstraint) void {
         self.specifier.deinit();
     }
 
-    pub fn matches(self: InterpreterConstraint, allocator: std.mem.Allocator, interp: Interpreter) !bool {
+    pub fn matches(self: InterpreterConstraint, interp: Interpreter) bool {
         if (self.impl) |impl| {
             switch (impl) {
                 .CPython => if (!std.mem.eql(
@@ -61,7 +74,37 @@ const InterpreterConstraint = struct {
                 },
             }
         }
-        return self.specifier.matches(allocator, interp.marker_env.python_full_version);
+
+        const release: Release = .{
+            .major = interp.version.major,
+            .minor = interp.version.minor,
+            .patch = interp.version.micro,
+        };
+
+        const pre_release: ?PreRelease = res: {
+            // C.F.: https://docs.python.org/3/library/sys.html#sys.version_info
+            if (std.mem.eql(u8, "alpha", interp.version.releaselevel)) {
+                break :res .{ .alpha = interp.version.serial };
+            } else if (std.mem.eql(u8, "beta", interp.version.releaselevel)) {
+                break :res .{ .beta = interp.version.serial };
+            } else if (std.mem.eql(u8, "candidate", interp.version.releaselevel)) {
+                break :res .{ .rc = interp.version.serial };
+            } else {
+                if (!std.mem.eql(u8, "final", interp.version.releaselevel)) {
+                    log.warn("Unrecognized interpreter release level: {s}{d}. " ++
+                        "Considering this a final release of {d}.{d}.{d}", .{
+                        interp.version.releaselevel,
+                        interp.version.serial,
+                        interp.version.major,
+                        interp.version.minor,
+                        interp.version.micro,
+                    });
+                }
+                break :res null;
+            }
+        };
+
+        return self.specifier.matches(.{ .release = release, .pre_release = pre_release });
     }
 };
 
@@ -89,10 +132,10 @@ pub fn deinit(self: Self) void {
     self.allocator.free(self.constraints);
 }
 
-pub fn matches(self: Self, allocator: std.mem.Allocator, interp: Interpreter) !bool {
+pub fn matches(self: Self, interp: Interpreter) bool {
     if (self.constraints.len == 0) return true;
     for (self.constraints) |constraint| {
-        if (try constraint.matches(allocator, interp)) return true;
+        if (constraint.matches(interp)) return true;
     }
     return false;
 }
@@ -211,17 +254,17 @@ test "no impl" {
     const pythons = try Pythons.init(std.testing.allocator);
     defer pythons.deinit();
 
-    try std.testing.expect(!try ics.matches(std.testing.allocator, pythons.cpython38.value));
-    try std.testing.expect(try ics.matches(std.testing.allocator, pythons.cpython39.value));
-    try std.testing.expect(try ics.matches(std.testing.allocator, pythons.cpython312.value));
+    try std.testing.expect(!ics.matches(pythons.cpython38.value));
+    try std.testing.expect(ics.matches(pythons.cpython39.value));
+    try std.testing.expect(ics.matches(pythons.cpython312.value));
     if (pythons.pypy38) |pypy38| {
-        try std.testing.expect(!try ics.matches(std.testing.allocator, pypy38.value));
+        try std.testing.expect(!ics.matches(pypy38.value));
     }
     if (pythons.pypy310) |pypy310| {
-        try std.testing.expect(try ics.matches(std.testing.allocator, pypy310.value));
+        try std.testing.expect(ics.matches(pypy310.value));
     }
     if (pythons.pypy311) |pypy311| {
-        try std.testing.expect(try ics.matches(std.testing.allocator, pypy311.value));
+        try std.testing.expect(ics.matches(pypy311.value));
     }
 }
 
@@ -239,17 +282,17 @@ test "CPython" {
     const pythons = try Pythons.init(std.testing.allocator);
     defer pythons.deinit();
 
-    try std.testing.expect(!try ics.matches(std.testing.allocator, pythons.cpython38.value));
-    try std.testing.expect(!try ics.matches(std.testing.allocator, pythons.cpython39.value));
-    try std.testing.expect(try ics.matches(std.testing.allocator, pythons.cpython312.value));
+    try std.testing.expect(!ics.matches(pythons.cpython38.value));
+    try std.testing.expect(!ics.matches(pythons.cpython39.value));
+    try std.testing.expect(ics.matches(pythons.cpython312.value));
     if (pythons.pypy38) |pypy38| {
-        try std.testing.expect(!try ics.matches(std.testing.allocator, pypy38.value));
+        try std.testing.expect(!ics.matches(pypy38.value));
     }
     if (pythons.pypy310) |pypy310| {
-        try std.testing.expect(!try ics.matches(std.testing.allocator, pypy310.value));
+        try std.testing.expect(!ics.matches(pypy310.value));
     }
     if (pythons.pypy311) |pypy311| {
-        try std.testing.expect(!try ics.matches(std.testing.allocator, pypy311.value));
+        try std.testing.expect(!ics.matches(pypy311.value));
     }
 }
 
@@ -267,17 +310,17 @@ test "PyPy" {
     const pythons = try Pythons.init(std.testing.allocator);
     defer pythons.deinit();
 
-    try std.testing.expect(!try ics.matches(std.testing.allocator, pythons.cpython38.value));
-    try std.testing.expect(!try ics.matches(std.testing.allocator, pythons.cpython39.value));
-    try std.testing.expect(!try ics.matches(std.testing.allocator, pythons.cpython312.value));
+    try std.testing.expect(!ics.matches(pythons.cpython38.value));
+    try std.testing.expect(!ics.matches(pythons.cpython39.value));
+    try std.testing.expect(!ics.matches(pythons.cpython312.value));
     if (pythons.pypy38) |pypy38| {
-        try std.testing.expect(!try ics.matches(std.testing.allocator, pypy38.value));
+        try std.testing.expect(!ics.matches(pypy38.value));
     }
     if (pythons.pypy310) |pypy310| {
-        try std.testing.expect(!try ics.matches(std.testing.allocator, pypy310.value));
+        try std.testing.expect(!ics.matches(pypy310.value));
     }
     if (pythons.pypy311) |pypy311| {
-        try std.testing.expect(try ics.matches(std.testing.allocator, pypy311.value));
+        try std.testing.expect(ics.matches(pypy311.value));
     }
 }
 
@@ -300,16 +343,16 @@ test "ORed constraints" {
     const pythons = try Pythons.init(std.testing.allocator);
     defer pythons.deinit();
 
-    try std.testing.expect(try ics.matches(std.testing.allocator, pythons.cpython38.value));
-    try std.testing.expect(!try ics.matches(std.testing.allocator, pythons.cpython39.value));
-    try std.testing.expect(!try ics.matches(std.testing.allocator, pythons.cpython312.value));
+    try std.testing.expect(ics.matches(pythons.cpython38.value));
+    try std.testing.expect(!ics.matches(pythons.cpython39.value));
+    try std.testing.expect(!ics.matches(pythons.cpython312.value));
     if (pythons.pypy38) |pypy38| {
-        try std.testing.expect(try ics.matches(std.testing.allocator, pypy38.value));
+        try std.testing.expect(ics.matches(pypy38.value));
     }
     if (pythons.pypy310) |pypy310| {
-        try std.testing.expect(!try ics.matches(std.testing.allocator, pypy310.value));
+        try std.testing.expect(!ics.matches(pypy310.value));
     }
     if (pythons.pypy311) |pypy311| {
-        try std.testing.expect(try ics.matches(std.testing.allocator, pypy311.value));
+        try std.testing.expect(ics.matches(pypy311.value));
     }
 }
