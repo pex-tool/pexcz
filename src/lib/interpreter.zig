@@ -730,10 +730,14 @@ test "fromSearchPath" {
         };
         try subprocess.run(
             std.testing.allocator,
-            &.{ "uv", "python", "install", "--managed-python", version, "--install-dir", "." },
+            &.{ "uv", "python", "install", "--managed-python", version },
             subprocess.CheckCall(CheckInstall.printError),
             .{
-                .extra_child_run_args = .{ .cwd = tmp_dir_path, .cwd_dir = tmp.dir },
+                .extra_child_run_args = .{
+                    .env_map = &env,
+                    .cwd = tmp_dir_path,
+                    .cwd_dir = tmp.dir,
+                },
                 .print_error_args = version,
             },
         );
