@@ -6,12 +6,9 @@ const Release = Version.Release;
 const PreRelease = Version.PreRelease;
 const Specifier = @import("Specifier.zig");
 const Version = @import("Version.zig");
+const string = @import("string.zig");
 
 const log = std.log.scoped(.ics);
-
-fn trim_ws(value: []const u8) []const u8 {
-    return std.mem.trim(u8, value, " \t\n\r");
-}
 
 const PythonImplementation = enum { CPython, PyPy };
 
@@ -20,7 +17,7 @@ const InterpreterConstraint = struct {
     specifier: Specifier,
 
     fn parse(allocator: std.mem.Allocator, constraint: []const u8) !InterpreterConstraint {
-        const trimmed = trim_ws(constraint);
+        const trimmed = string.trim_ascii_ws(constraint);
         var index: usize = 0;
         while (index < trimmed.len) {
             switch (trimmed[index]) {
