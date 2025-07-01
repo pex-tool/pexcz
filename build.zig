@@ -153,10 +153,16 @@ pub fn build(b: *std.Build) !void {
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
+    const test_filters = b.option(
+        []const []const u8,
+        "test-filter",
+        "For named tests, only run those with names matching the filter.",
+    ) orelse &.{};
     const lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/lib.zig"),
         .target = cur_tgt,
         .optimize = optimize,
+        .filters = test_filters,
     });
     lib_unit_tests.root_module.addAnonymousImport(
         "virtualenv.py",
@@ -171,6 +177,7 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/main.zig"),
         .target = cur_tgt,
         .optimize = optimize,
+        .filters = test_filters,
     });
     exe_unit_tests.root_module.addImport("options", exe_test_options.createModule());
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
