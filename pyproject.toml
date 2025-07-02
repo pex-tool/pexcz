@@ -52,7 +52,7 @@ module = ["pkg_resources.*"]
 follow_imports = "skip"
 
 [tool.uv]
-required-version = ">=0.6"
+required-version = ">=0.7.18"
 # TODO(John Sirois): The one case this doesn't cover is removal of the zig artifacts from
 #  src/python/pexcz/__pex__/.lib. Currently, uv is blind to this.
 cache-keys = [
