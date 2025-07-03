@@ -1,7 +1,7 @@
 const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
-const Interpreter = @import("interpreter.zig").Interpreter;
+const Interpreter = @import("Interpreter.zig");
 const subprocess = @import("subprocess.zig");
 
 pub const VIRTUALENV_PY = @embedFile("virtualenv.py");

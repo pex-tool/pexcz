@@ -2,13 +2,15 @@ const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
 const Environ = @import("process.zig").Environ;
-const Interpreter = @import("interpreter.zig").Interpreter;
+const Interpreter = @import("Interpreter.zig");
+const InterpreterContraints = @import("InterpreterConstraints.zig");
+const PexInfo = @import("PexInfo.zig");
 const VenvPex = @import("VenvPex.zig");
 const Virtualenv = @import("Virtualenv.zig");
 const Zip = @import("Zip.zig");
 const cache = @import("cache.zig");
 const fs = @import("fs.zig");
-const PexInfo = @import("PexInfo.zig");
+const getenv = @import("os.zig").getenv;
 
 const log = std.log.scoped(.boot);
 
@@ -167,10 +169,6 @@ fn setupBoot(
 
     var timer = try std.time.Timer.start();
 
-    const interpreter = try Interpreter.identify(allocator, std.mem.span(python_exe_path));
-    defer interpreter.deinit();
-    log.debug("Identify interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
-
     var temp_dirs = fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
 
@@ -192,6 +190,64 @@ fn setupBoot(
     defer pex_info.deinit();
     log.debug("Parse PEX-INFO took {d:.3}µs.", .{timer.lap() / 1_000});
 
+    var interp = try Interpreter.identify(allocator, std.mem.span(python_exe_path));
+    defer interp.deinit();
+    log.debug("Identify interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
+
+    // TODO(John Sirois): XXX: In addition, test the interpreter can be used to resolve a full dep
+    //  set from the PEX.
+    if (pex_info.value.interpreter_constraints.len > 0) {
+        defer log.debug("Finding a compatible interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
+        const ics = try InterpreterContraints.parse(
+            allocator,
+            pex_info.value.interpreter_constraints,
+        );
+        defer ics.deinit();
+
+        if (!ics.matches(interp.value)) {
+            var matching_interp: ?std.json.Parsed(Interpreter) = null;
+
+            var search_path: ?[]const []const u8 = null;
+            if (try getenv(allocator, "PEX_PYTHON_PATH")) |pex_python_path| {
+                defer pex_python_path.deinit();
+
+                var path = std.ArrayList([]const u8).init(allocator);
+                errdefer path.deinit();
+
+                var path_iter = std.mem.splitScalar(
+                    u8,
+                    pex_python_path.value,
+                    std.fs.path.delimiter,
+                );
+                while (path_iter.next()) |entry| {
+                    try path.append(try allocator.dupe(u8, entry));
+                }
+                search_path = try path.toOwnedSlice();
+            }
+            defer if (search_path) |sp| {
+                for (sp) |entry| {
+                    allocator.free(entry);
+                }
+                allocator.free(sp);
+            };
+
+            var interpreter_iter = try Interpreter.Iter.fromSearchPath(
+                allocator,
+                .{ .search_path = search_path },
+            );
+            while (interpreter_iter.next()) |python_interp| {
+                if (ics.matches(python_interp.value)) {
+                    matching_interp = python_interp;
+                    break;
+                }
+            }
+            if (matching_interp == null) {
+                return error.CompatibleInterpreterNotFound;
+            }
+            interp = matching_interp.?;
+        }
+    }
+
     const encoder = std.fs.base64_encoder;
     const pex_hash_bytes = @as(
         [20]u8,
@@ -201,7 +257,7 @@ fn setupBoot(
     // TODO: XXX: Account for PEX_PATH
     var venv_digest = std.crypto.hash.Sha1.init(.{});
     venv_digest.update(&pex_hash_bytes);
-    const tag = interpreter.value.supported_tags[0];
+    const tag = interp.value.supported_tags[0];
     venv_digest.update(tag.python);
     venv_digest.update(tag.abi);
     venv_digest.update(tag.platform);
@@ -244,7 +300,7 @@ fn setupBoot(
         .allocator = allocator,
         .venv_pex = venv_pex,
         .dest_path = venv_cache_dir.path,
-        .interpreter = interpreter.value,
+        .interpreter = interp.value,
     };
     var dir = try venv_cache_dir.createAtomic(Fn, Fn.install, func, .{});
     defer dir.close();

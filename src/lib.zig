@@ -1,23 +1,33 @@
 const std = @import("std");
 
+const InterpreterConstraints = @import("lib/InterpreterConstraints.zig");
+const ProjectName = @import("lib/ProjectName.zig");
+const Specifier = @import("lib/Specifier.zig");
+const Version = @import("lib/Version.zig");
+const WheelInfo = @import("lib/WheelInfo.zig");
+const Interpreter = @import("lib/Interpreter.zig");
+const string = @import("lib/string.zig");
+
 pub const Allocator = @import("lib/heap.zig").Allocator;
 pub const Environ = @import("lib/process.zig").Environ;
+pub const PexInfo = @import("lib/PexInfo.zig");
 pub const Zip = @import("lib/Zip.zig");
-const boot = @import("lib/boot.zig");
-pub const bootPexZPosix = boot.bootPexZPosix;
-pub const bootPexZWindows = boot.bootPexZWindows;
-pub const mount = boot.mount;
 pub const cache = @import("lib/cache.zig");
 pub const fs = @import("lib/fs.zig");
 pub const sliceZ = @import("lib/process.zig").sliceZ;
 
-const ProjectName = @import("lib/ProjectName.zig");
-const WheelInfo = @import("lib/WheelInfo.zig");
-const interpreter = @import("lib/interpreter.zig");
+const boot = @import("lib/boot.zig");
+pub const bootPexZPosix = boot.bootPexZPosix;
+pub const bootPexZWindows = boot.bootPexZWindows;
+pub const mount = boot.mount;
 
 test {
+    _ = InterpreterConstraints;
     _ = ProjectName;
+    _ = Specifier;
+    _ = Version;
     _ = WheelInfo;
     _ = cache;
-    _ = interpreter;
+    _ = Interpreter;
+    _ = string;
 }

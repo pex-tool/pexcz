@@ -62,7 +62,110 @@ const CompressionOptions = struct {
     level: i8 = 0,
 };
 
-fn setZipPrefix(allocator: std.mem.Allocator, pex: *Zip, czex: *Zip) !?[]const u8 {
+fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
+    const pex_info_data = try pex.extractToSlice(allocator, "PEX-INFO") orelse {
+        log.err("The PEX at {s} does not contain a PEX-INFO zip entry.", .{pex.path});
+        return error.PexInfoNotFound;
+    };
+
+    const parsed_pex_info = try pexcz.PexInfo.parse(allocator, pex_info_data);
+    defer parsed_pex_info.deinit();
+
+    const pex_info = parsed_pex_info.value;
+
+    return try std.fmt.allocPrint(
+        allocator,
+        \\#!/bin/sh
+        \\
+        \\# N.B.: This script should stick to syntax defined for POSIX `sh` and avoid non-builtins.
+        \\# See: https://pubs.opengroup.org/onlinepubs/9699919799/idx/shell.html
+        \\set -eu
+        \\
+        \\VENV="{[venv]s}"
+        \\VENV_PYTHON_ARGS="{[venv_python_args]s}"
+        \\
+        \\# N.B.: This ensures tilde-expansion of the DEFAULT_PEX_ROOT value.
+        \\DEFAULT_PEX_ROOT="$(echo {[pex_root]s})"
+        \\
+        \\DEFAULT_PYTHON="{[python]s}"
+        \\PYTHON_ARGS="{[python_args]s}"
+        \\
+        \\PEX_ROOT="${{PEX_ROOT:-${{DEFAULT_PEX_ROOT}}}}"
+        \\INSTALLED_PEX="${{PEX_ROOT}}/{[pex_installed_relpath]s}"
+        \\
+        \\if [ -n "${{VENV}}" -a -x "${{INSTALLED_PEX}}" -a -z "${{PEX_TOOLS:-}}" ]; then
+        \\    # We're a --venv execution mode PEX installed under the PEX_ROOT and the venv
+        \\    # interpreter to use is embedded in the shebang of our venv pex script; so just
+        \\    # execute that script directly... except if we're needing to execute PEX code, in
+        \\    # the form of the tools.
+        \\    export PEX="{pex}"
+        \\    exec "${{INSTALLED_PEX}}/bin/python" ${{VENV_PYTHON_ARGS}} "${{INSTALLED_PEX}}" \\
+        \\        "$@"
+        \\fi
+        \\
+        \\find_python() {{
+        \\    for python in \\
+        \\{[pythons]s} \\
+        \\    ; do
+        \\        if command -v "${{python}}" 2>/dev/null; then
+        \\            return
+        \\        fi
+        \\    done
+        \\}}
+        \\
+        \\if [ -x "${{DEFAULT_PYTHON}}" ]; then
+        \\    python_exe="${{DEFAULT_PYTHON}}"
+        \\else
+        \\    python_exe="$(find_python)"
+        \\fi
+        \\if [ -n "${{python_exe}}" ]; then
+        \\    if [ -n "${{PEX_VERBOSE:-}}" ]; then
+        \\        echo >&2 "$0 used /bin/sh boot to select python: ${{python_exe}} for re-exec..."
+        \\    fi
+        \\    if [ -z "${{VENV}}" -a -e "${{INSTALLED_PEX}}" ]; then
+        \\        # We're a --zipapp execution mode PEX installed under the PEX_ROOT with a
+        \\        # __main__.py in our top-level directory; so execute Python against that
+        \\        # directory.
+        \\        export __PEX_EXE__="{[pex]s}"
+        \\        exec "${{python_exe}}" ${{PYTHON_ARGS}} "${{INSTALLED_PEX}}" "$@"
+        \\    else
+        \\        # The slow path: this PEX zipapp is not installed yet. Run the PEX zipapp so it
+        \\        # can install itself, rebuilding its fast path layout under the PEX_ROOT.
+        \\        if [ -n "${{PEX_VERBOSE:-}}" ]; then
+        \\            echo >&2 "Running zipapp pex to lay itself out under PEX_ROOT."
+        \\        fi
+        \\        exec "${{python_exe}}" ${{PYTHON_ARGS}} "$0" "$@"
+        \\    fi
+        \\fi
+        \\
+        \\echo >&2 "Failed to find any of these python binaries on the PATH:"
+        \\for python in \\
+        \\{[pythons]s} \\
+        \\; do
+        \\    echo >&2 "${{python}}"
+        \\done
+        \\echo >&2 'Either adjust your $PATH which is currently:'
+        \\echo >&2 "${{PATH}}"
+        \\echo >&2 -n "Or else install an appropriate Python that provides one of the binaries in "
+        \\echo >&2 "this list."
+        \\exit 1
+    ,
+        .{
+            .venv = "",
+            .venv_python_args = "",
+            .pex_root = if (pex_info.interpreter_constraints.len > 0) pex_info.interpreter_constraints[0] else "",
+            .python = "",
+            .python_args = "",
+            .pex_installed_relpath = "",
+            .pythons = "",
+            .pex = "",
+        },
+    );
+}
+
+const sh_boot_shebang = "#!/bin/sh\n";
+
+fn getZipPrefix(allocator: std.mem.Allocator, pex: *Zip) !?[]const u8 {
     const prefix = c.zip_get_archive_prefix(pex.handle);
     if (prefix == 0) {
         return null;
@@ -71,28 +174,47 @@ fn setZipPrefix(allocator: std.mem.Allocator, pex: *Zip, czex: *Zip) !?[]const u
         log.err(
             "The zip prefix for {s} is {d} bytes which is too large for this system " ++
                 "to process: {s}",
-            .{ czex.path, prefix, c.zip_strerror(czex.handle) },
+            .{ pex.path, prefix, c.zip_strerror(pex.handle) },
         );
         return error.ZipPrefixTooBig;
     }
-    const buffer = try allocator.alloc(u8, @intCast(prefix));
-    errdefer allocator.free(buffer);
 
     var source_pex_file = try std.fs.cwd().openFileZ(pex.path, .{});
     defer source_pex_file.close();
 
     var source_pex_fp = std.io.bufferedReader(source_pex_file.reader());
-    const read_amount = try source_pex_fp.reader().readAll(buffer);
-    std.debug.assert(read_amount == buffer.len);
+    var source_pex_reader = source_pex_fp.reader();
 
-    if (c.zip_set_archive_prefix(czex.handle, buffer.ptr, buffer.len) != 0) {
-        log.err(
-            "Failed to set Pex shebang prefix on {s}: {s}",
-            .{ czex.path, c.zip_strerror(czex.handle) },
-        );
-        return error.ZipAddPrefixError;
+    if (prefix >= sh_boot_shebang.len) {
+        var buffer: [sh_boot_shebang.len]u8 = undefined;
+        const read_amount = try source_pex_reader.readAll(&buffer);
+        std.debug.assert(read_amount == buffer.len);
+        if (std.mem.eql(u8, sh_boot_shebang, &buffer)) {
+            return try createShBootPrefix(allocator, pex);
+        }
     }
+
+    const buffer = try allocator.alloc(u8, @intCast(prefix));
+    errdefer allocator.free(buffer);
+
+    try source_pex_file.seekTo(0);
+    const read_amount = try source_pex_reader.readAll(buffer);
+    std.debug.assert(read_amount == buffer.len);
     return buffer;
+}
+
+fn setZipPrefix(allocator: std.mem.Allocator, pex: *Zip, czex: *Zip) !?[]const u8 {
+    if (try getZipPrefix(allocator, pex)) |prefix| {
+        if (c.zip_set_archive_prefix(czex.handle, prefix.ptr, prefix.len) != 0) {
+            log.err(
+                "Failed to set Pex shebang prefix on {s}: {s}",
+                .{ czex.path, c.zip_strerror(czex.handle) },
+            );
+            return error.ZipAddPrefixError;
+        }
+        return prefix;
+    }
+    return null;
 }
 
 fn setEntryMtime(pex: *Zip, entry_index: c.zip_uint64_t, entry_name: []const u8) !void {
