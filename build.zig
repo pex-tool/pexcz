@@ -51,6 +51,7 @@ pub fn build(b: *std.Build) !void {
     const virtualenv_py_resource = tool_step.addOutputFileArg("virtualenv.py");
 
     const known_folders = b.dependency("known_folders", .{}).module("known-folders");
+    const zeit = b.dependency("zeit", .{}).module("zeit");
 
     var target_dirs = try std.ArrayList([]const u8).initCapacity(b.allocator, target_queries.len);
     defer target_dirs.deinit();
@@ -79,6 +80,7 @@ pub fn build(b: *std.Build) !void {
         });
         lib.addAnonymousImport("virtualenv.py", .{ .root_source_file = virtualenv_py_resource });
         lib.addImport("known-folders", known_folders);
+        lib.addImport("zeit", zeit);
         lib.linkLibrary(libzip_dep);
 
         const clib = b.addSharedLibrary(.{
@@ -169,6 +171,7 @@ pub fn build(b: *std.Build) !void {
         .{ .root_source_file = virtualenv_py_resource },
     );
     lib_unit_tests.root_module.addImport("known-folders", known_folders);
+    lib_unit_tests.root_module.addImport("zeit", zeit);
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const exe_test_options = b.addOptions();

@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const zeit = @import("zeit");
 
 const Interpreter = @import("interpreter.zig").Interpreter;
 const Release = Version.Release;
@@ -50,6 +51,10 @@ const InterpreterConstraint = struct {
 
     fn deinit(self: InterpreterConstraint) void {
         self.specifier.deinit();
+    }
+
+    fn release_matches(self: InterpreterConstraint, release: Release) bool {
+        return self.specifier.matches(.{ .release = release });
     }
 
     pub fn matches(self: InterpreterConstraint, interp: Interpreter) bool {
@@ -140,20 +145,73 @@ pub fn matches(self: Self, interp: Interpreter) bool {
 pub const PythonVersion = struct {
     major: u8,
     minor: u8,
-    implementation: ?PythonImplementation = null,
+    impl: ?PythonImplementation = null,
 };
 
+// N.B.: This assumes there will never be a Python 4.
 pub const CompatibleVersionsIter = struct {
     constraints: []InterpreterConstraint,
+    max_minor: u8,
+    release: Release = .{ .major = 2, .minor = 7 },
 
-    pub fn next(self: CompatibleVersionsIter) ?PythonVersion {
-        _ = self;
+    fn incrementVersion(self: *CompatibleVersionsIter) void {
+        if (self.release.major == 2) {
+            self.release.major = 3;
+            self.release.minor = 5;
+        } else {
+            self.release.minor.? += 1;
+        }
+    }
+
+    pub fn next(self: *CompatibleVersionsIter) ?PythonVersion {
+        while (self.release.major != 3 or self.release.minor.? <= self.max_minor) {
+            defer self.incrementVersion();
+            for (self.constraints) |constraint| {
+                if (constraint.release_matches(self.release)) {
+                    return PythonVersion{
+                        .major = @intCast(self.release.major),
+                        .minor = self.release.minor.?,
+                        .impl = constraint.impl,
+                    };
+                }
+            }
+        }
         return null;
     }
 };
 
-pub fn compatible_versions_iter(self: Self) CompatibleVersionsIter {
-    return .{ .constraints = self.constraints };
+fn maxMinor() u8 {
+    const static = struct {
+        var max_minor: ?u8 = null;
+    };
+    return static.max_minor orelse {
+        const current_production_release_minor: u8 = blk: {
+            // Calibration point: 3.14.0 release will be in 10 / 2025 and there are yearly releases.
+            const now = zeit.instant(.{ .source = .now }) catch {
+                // N.B.: There are never errors when the source is not a string that needs to be
+                // parsed.
+                unreachable;
+            };
+            const time = now.time();
+            // TODO(John Sirois): XXX: This goes wrong after 2266.
+            const fall_release: u8 = @intCast(14 + @max(0, time.year - 2025));
+            if (@intFromEnum(time.month) >= @intFromEnum(zeit.Month.oct)) {
+                break :blk fall_release;
+            } else {
+                break :blk fall_release - 1;
+            }
+        };
+        const value = current_production_release_minor + 1;
+        static.max_minor = value;
+        return value;
+    };
+}
+
+pub fn compatible_versions_iter(
+    self: Self,
+    options: struct { max_minor: ?u8 = null },
+) CompatibleVersionsIter {
+    return .{ .constraints = self.constraints, .max_minor = options.max_minor orelse maxMinor() };
 }
 
 fn interpreter(
@@ -373,29 +431,45 @@ test "ORed constraints" {
     }
 }
 
-
 test "Compatible versions simple" {
-    const ics = try Self.parse(std.testing.allocator, &.{ ">=3.9" });
+    const ics = try Self.parse(std.testing.allocator, &.{">=3.9"});
     defer ics.deinit();
 
     var actual_versions = std.ArrayList(PythonVersion).init(std.testing.allocator);
     defer actual_versions.deinit();
 
-    var iter = ics.compatible_versions_iter();
+    var iter = ics.compatible_versions_iter(.{ .max_minor = 12 });
     while (iter.next()) |version| try actual_versions.append(version);
 
-    try std.testing.expectEqualDeep(&.{PythonVersion{.major = 3, .minor = 9}}, actual_versions.items);
+    try std.testing.expectEqualDeep(
+        &.{
+            PythonVersion{ .major = 3, .minor = 9 },
+            PythonVersion{ .major = 3, .minor = 10 },
+            PythonVersion{ .major = 3, .minor = 11 },
+            PythonVersion{ .major = 3, .minor = 12 },
+        },
+        actual_versions.items,
+    );
 }
 
 test "Compatible versions ORed" {
-    const ics = try Self.parse(std.testing.allocator, &.{ "PyPy==3.11.*", "==3.8.*" });
+    const ics = try Self.parse(std.testing.allocator, &.{ "PyPy~=3.11", "==3.8.*" });
     defer ics.deinit();
 
     var actual_versions = std.ArrayList(PythonVersion).init(std.testing.allocator);
     defer actual_versions.deinit();
 
-    var iter = ics.compatible_versions_iter();
+    var iter = ics.compatible_versions_iter(.{ .max_minor = 14 });
     while (iter.next()) |version| try actual_versions.append(version);
 
-    try std.testing.expectEqualDeep(&.{}, actual_versions.items);
+    try std.testing.expectEqualDeep(
+        &.{
+            PythonVersion{ .major = 3, .minor = 8 },
+            PythonVersion{ .major = 3, .minor = 11, .impl = .PyPy },
+            PythonVersion{ .major = 3, .minor = 12, .impl = .PyPy },
+            PythonVersion{ .major = 3, .minor = 13, .impl = .PyPy },
+            PythonVersion{ .major = 3, .minor = 14, .impl = .PyPy },
+        },
+        actual_versions.items,
+    );
 }
