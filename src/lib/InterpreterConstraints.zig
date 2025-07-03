@@ -201,6 +201,9 @@ fn maxMinor() u8 {
                 break :blk fall_release - 1;
             }
         };
+
+        // N.B.: The +1 accounts for dev / alpha / beta / rc of the next Python release being
+        // installed.
         const value = current_production_release_minor + 1;
         static.max_minor = value;
         return value;
@@ -209,9 +212,19 @@ fn maxMinor() u8 {
 
 pub fn compatible_versions_iter(
     self: Self,
-    options: struct { max_minor: ?u8 = null },
+    options: struct { max: ?union(enum) { minor: u8, years_ahead: u8 } = null },
 ) CompatibleVersionsIter {
-    return .{ .constraints = self.constraints, .max_minor = options.max_minor orelse maxMinor() };
+    const max_minor = res: {
+        if (options.max) |max| {
+            switch (max) {
+                .minor => |val| break :res val,
+                .years_ahead => |val| break :res maxMinor() + val,
+            }
+        } else {
+            break :res maxMinor();
+        }
+    };
+    return .{ .constraints = self.constraints, .max_minor = max_minor };
 }
 
 fn interpreter(
@@ -432,21 +445,20 @@ test "ORed constraints" {
 }
 
 test "Compatible versions simple" {
-    const ics = try Self.parse(std.testing.allocator, &.{">=3.9"});
+    const ics = try Self.parse(std.testing.allocator, &.{">=2.7"});
     defer ics.deinit();
 
     var actual_versions = std.ArrayList(PythonVersion).init(std.testing.allocator);
     defer actual_versions.deinit();
 
-    var iter = ics.compatible_versions_iter(.{ .max_minor = 12 });
+    var iter = ics.compatible_versions_iter(.{ .max = .{ .minor = 6 } });
     while (iter.next()) |version| try actual_versions.append(version);
 
     try std.testing.expectEqualDeep(
         &.{
-            PythonVersion{ .major = 3, .minor = 9 },
-            PythonVersion{ .major = 3, .minor = 10 },
-            PythonVersion{ .major = 3, .minor = 11 },
-            PythonVersion{ .major = 3, .minor = 12 },
+            PythonVersion{ .major = 2, .minor = 7 },
+            PythonVersion{ .major = 3, .minor = 5 },
+            PythonVersion{ .major = 3, .minor = 6 },
         },
         actual_versions.items,
     );
@@ -459,7 +471,7 @@ test "Compatible versions ORed" {
     var actual_versions = std.ArrayList(PythonVersion).init(std.testing.allocator);
     defer actual_versions.deinit();
 
-    var iter = ics.compatible_versions_iter(.{ .max_minor = 14 });
+    var iter = ics.compatible_versions_iter(.{ .max = .{ .minor = 14 } });
     while (iter.next()) |version| try actual_versions.append(version);
 
     try std.testing.expectEqualDeep(
