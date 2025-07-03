@@ -137,6 +137,25 @@ pub fn matches(self: Self, interp: Interpreter) bool {
     return false;
 }
 
+pub const PythonVersion = struct {
+    major: u8,
+    minor: u8,
+    implementation: ?PythonImplementation = null,
+};
+
+pub const CompatibleVersionsIter = struct {
+    constraints: []InterpreterConstraint,
+
+    pub fn next(self: CompatibleVersionsIter) ?PythonVersion {
+        _ = self;
+        return null;
+    }
+};
+
+pub fn compatible_versions_iter(self: Self) CompatibleVersionsIter {
+    return .{ .constraints = self.constraints };
+}
+
 fn interpreter(
     allocator: std.mem.Allocator,
     spec: []const u8,
@@ -352,4 +371,31 @@ test "ORed constraints" {
     if (pythons.pypy311) |pypy311| {
         try std.testing.expect(ics.matches(pypy311.value));
     }
+}
+
+
+test "Compatible versions simple" {
+    const ics = try Self.parse(std.testing.allocator, &.{ ">=3.9" });
+    defer ics.deinit();
+
+    var actual_versions = std.ArrayList(PythonVersion).init(std.testing.allocator);
+    defer actual_versions.deinit();
+
+    var iter = ics.compatible_versions_iter();
+    while (iter.next()) |version| try actual_versions.append(version);
+
+    try std.testing.expectEqualDeep(&.{PythonVersion{.major = 3, .minor = 9}}, actual_versions.items);
+}
+
+test "Compatible versions ORed" {
+    const ics = try Self.parse(std.testing.allocator, &.{ "PyPy==3.11.*", "==3.8.*" });
+    defer ics.deinit();
+
+    var actual_versions = std.ArrayList(PythonVersion).init(std.testing.allocator);
+    defer actual_versions.deinit();
+
+    var iter = ics.compatible_versions_iter();
+    while (iter.next()) |version| try actual_versions.append(version);
+
+    try std.testing.expectEqualDeep(&.{}, actual_versions.items);
 }
