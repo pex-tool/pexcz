@@ -2,9 +2,8 @@ const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
 const Environ = @import("process.zig").Environ;
-const Interpreter = interpreter.Interpreter;
+const Interpreter = @import("Interpreter.zig");
 const InterpreterContraints = @import("InterpreterConstraints.zig");
-const InterpreterIter = interpreter.InterpreterIter;
 const PexInfo = @import("PexInfo.zig");
 const VenvPex = @import("VenvPex.zig");
 const Virtualenv = @import("Virtualenv.zig");
@@ -12,7 +11,6 @@ const Zip = @import("Zip.zig");
 const cache = @import("cache.zig");
 const fs = @import("fs.zig");
 const getenv = @import("os.zig").getenv;
-const interpreter = @import("interpreter.zig");
 
 const log = std.log.scoped(.boot);
 
@@ -233,7 +231,7 @@ fn setupBoot(
                 allocator.free(sp);
             };
 
-            var interpreter_iter = try InterpreterIter.fromSearchPath(
+            var interpreter_iter = try Interpreter.Iter.fromSearchPath(
                 allocator,
                 .{ .search_path = search_path },
             );

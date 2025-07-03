@@ -18,9 +18,7 @@ const Version = struct {
     major: u8,
     minor: u8,
 
-    const Self = @This();
-
-    fn parse(version: []const u8) !Self {
+    fn parse(version: []const u8) !Version {
         var version_component_iter = std.mem.splitScalar(u8, version, '.');
         const major = version_component_iter.next() orelse return error.VersionParseError;
         const minor = version_component_iter.next() orelse return error.VersionParseError;
@@ -35,9 +33,7 @@ const Manylinux = struct {
     armhf: bool,
     i686: bool,
 
-    const Self = @This();
-
-    fn fromHeader(parse_source: anytype, header: std.elf.Header, version: ?Version) !Self {
+    fn fromHeader(parse_source: anytype, header: std.elf.Header, version: ?Version) !Manylinux {
         const @"32bit little endian" = !header.is_64 and header.endian == .little;
         const armhf = res: {
             if (!@"32bit little endian" or header.machine != .ARM) {
@@ -73,9 +69,7 @@ const Linux = union(enum) {
     manylinux: Manylinux,
     muslinux: Version,
 
-    const Self = @This();
-
-    fn detect(allocator: std.mem.Allocator, python: []const u8) !?Self {
+    fn detect(allocator: std.mem.Allocator, python: []const u8) !?Linux {
         if (native_os != .linux) {
             return null;
         }
@@ -208,166 +202,164 @@ pub const VersionInfo = struct {
     serial: u8 = 0,
 };
 
-pub const Interpreter = struct {
-    path: []const u8,
-    realpath: []const u8,
-    prefix: []const u8,
-    base_prefix: ?[]const u8,
-    version: VersionInfo,
-    marker_env: Marker.Env,
-    macos_framework_build: bool,
-    has_ensurepip: bool,
+path: []const u8,
+realpath: []const u8,
+prefix: []const u8,
+base_prefix: ?[]const u8,
+version: VersionInfo,
+marker_env: Marker.Env,
+macos_framework_build: bool,
+has_ensurepip: bool,
 
-    // TODO: XXX: See if we can just keep tags as []const u8 opaque strings for set membership
-    //  tests.
-    supported_tags: []const Tag,
+// TODO: XXX: See if we can just keep tags as []const u8 opaque strings for set membership
+//  tests.
+supported_tags: []const Tag,
 
-    const Self = @This();
+const Self = @This();
 
-    pub fn identify(allocator: std.mem.Allocator, path: []const u8) !std.json.Parsed(Self) {
-        var temp_dirs = TempDirs.init(allocator);
-        defer temp_dirs.deinit();
+pub fn identify(allocator: std.mem.Allocator, path: []const u8) !std.json.Parsed(Self) {
+    var temp_dirs = TempDirs.init(allocator);
+    defer temp_dirs.deinit();
 
-        const pexcz_root = try cache.root(allocator, &temp_dirs, .{});
-        defer pexcz_root.deinit(.{});
+    const pexcz_root = try cache.root(allocator, &temp_dirs, .{});
+    defer pexcz_root.deinit(.{});
 
-        // TODO(John Sirois): Re-consider key hashing scheme - compare to Pex.
-        const Hasher = std.crypto.hash.sha2.Sha256;
-        var digest: [Hasher.digest_length]u8 = undefined;
-        Hasher.hash(path, &digest, .{});
+    // TODO(John Sirois): Re-consider key hashing scheme - compare to Pex.
+    const Hasher = std.crypto.hash.sha2.Sha256;
+    var digest: [Hasher.digest_length]u8 = undefined;
+    Hasher.hash(path, &digest, .{});
 
-        const encoder = std.fs.base64_encoder;
-        // N.B.: This is the correct value for a 32 byte hash (sha256).
-        var key_buf: [43]u8 = undefined;
-        const key = encoder.encode(&key_buf, &digest);
-        const expected_size = encoder.calcSize(Hasher.digest_length);
-        std.debug.assert(expected_size == key.len);
+    const encoder = std.fs.base64_encoder;
+    // N.B.: This is the correct value for a 32 byte hash (sha256).
+    var key_buf: [43]u8 = undefined;
+    const key = encoder.encode(&key_buf, &digest);
+    const expected_size = encoder.calcSize(Hasher.digest_length);
+    std.debug.assert(expected_size == key.len);
 
-        var interpeter_cache = try pexcz_root.join(&.{ "interpreters", "0", key });
-        defer interpeter_cache.deinit(.{});
+    var interpeter_cache = try pexcz_root.join(&.{ "interpreters", "0", key });
+    defer interpeter_cache.deinit(.{});
 
-        const Work = struct {
-            allocator: std.mem.Allocator,
-            python: []const u8,
+    const Work = struct {
+        allocator: std.mem.Allocator,
+        python: []const u8,
 
-            fn work(work_path: []const u8, work_dir: std.fs.Dir, context: @This()) !void {
-                var timer = try std.time.Timer.start();
-                defer log.debug(
-                    "interpreter identification took {d:.3}µs",
-                    .{timer.read() / 1_000},
-                );
+        fn work(work_path: []const u8, work_dir: std.fs.Dir, context: @This()) !void {
+            var timer = try std.time.Timer.start();
+            defer log.debug(
+                "interpreter identification took {d:.3}µs",
+                .{timer.read() / 1_000},
+            );
 
-                const linux_info = res: {
-                    defer log.debug("Linux libc detection took {d:.3}µs", .{timer.lap() / 1_000});
-                    const linux = try Linux.detect(context.allocator, context.python);
-                    break :res linux;
-                };
+            const linux_info = res: {
+                defer log.debug("Linux libc detection took {d:.3}µs", .{timer.lap() / 1_000});
+                const linux = try Linux.detect(context.allocator, context.python);
+                break :res linux;
+            };
 
-                var argc: usize = 5;
-                var argv = [_][]const u8{
-                    context.python,
-                    "-sE",
-                    "-c",
-                    interpreter_py,
-                    "info.json",
-                    "--linux-info",
-                    "<replace me>",
-                };
-                if (linux_info) |linux| {
-                    argv[argv.len - 1] = try std.json.stringifyAlloc(
-                        context.allocator,
-                        linux,
-                        .{},
-                    );
-                    argc = argv.len;
-                    log.debug(
-                        "Detected Linux for {s}:\n{s}",
-                        .{ context.python, argv[argv.len - 1] },
-                    );
-                }
-                defer if (argc == argv.len) context.allocator.free(argv[argv.len - 1]);
-
-                const CheckCall = struct {
-                    pub fn printError(python: []const u8) void {
-                        std.debug.print("Failed to identify interpreter at {s}.\n", .{python});
-                    }
-                };
-                try subprocess.run(
+            var argc: usize = 5;
+            var argv = [_][]const u8{
+                context.python,
+                "-sE",
+                "-c",
+                interpreter_py,
+                "info.json",
+                "--linux-info",
+                "<replace me>",
+            };
+            if (linux_info) |linux| {
+                argv[argv.len - 1] = try std.json.stringifyAlloc(
                     context.allocator,
-                    argv[0..argc],
-                    subprocess.CheckCall(CheckCall.printError),
-                    .{
-                        .print_error_args = context.python,
-                        .extra_child_run_args = .{
-                            .cwd = work_path,
-                            .cwd_dir = work_dir,
-                        },
+                    linux,
+                    .{},
+                );
+                argc = argv.len;
+                log.debug(
+                    "Detected Linux for {s}:\n{s}",
+                    .{ context.python, argv[argv.len - 1] },
+                );
+            }
+            defer if (argc == argv.len) context.allocator.free(argv[argv.len - 1]);
+
+            const CheckCall = struct {
+                pub fn printError(python: []const u8) void {
+                    std.debug.print("Failed to identify interpreter at {s}.\n", .{python});
+                }
+            };
+            try subprocess.run(
+                context.allocator,
+                argv[0..argc],
+                subprocess.CheckCall(CheckCall.printError),
+                .{
+                    .print_error_args = context.python,
+                    .extra_child_run_args = .{
+                        .cwd = work_path,
+                        .cwd_dir = work_dir,
                     },
+                },
+            );
+        }
+    };
+    const work: Work = .{ .allocator = allocator, .python = path };
+    var interpeter_cache_dir = try interpeter_cache.createAtomic(Work, Work.work, work, .{});
+    defer interpeter_cache_dir.close();
+
+    const stat = try interpeter_cache_dir.statFile("info.json");
+    const data = try interpeter_cache_dir.readFileAlloc(
+        allocator,
+        "info.json",
+        @intCast(stat.size),
+    );
+    defer allocator.free(data);
+
+    return try std.json.parseFromSlice(
+        Self,
+        allocator,
+        data,
+        .{ .allocate = .alloc_always },
+    );
+}
+
+pub fn rankedTags(self: Self, allocator: std.mem.Allocator) !RankedTags {
+    return RankedTags.init(allocator, self.supported_tags);
+}
+
+pub fn resolve_base_interpreter(self: Self, allocator: std.mem.Allocator) !?std.json.Parsed(Self) {
+    if (self.base_prefix) |base_prefix| {
+        if (std.mem.eql(u8, base_prefix, self.prefix)) {
+            return null;
+        }
+        const path = res: {
+            if (native_os == .windows) {
+                break :res try std.fs.path.join(
+                    allocator,
+                    &.{ base_prefix, std.fs.path.basename(self.path) },
+                );
+            } else {
+                break :res try std.fs.path.join(
+                    allocator,
+                    &.{ base_prefix, "bin", std.fs.path.basename(self.path) },
                 );
             }
         };
-        const work: Work = .{ .allocator = allocator, .python = path };
-        var interpeter_cache_dir = try interpeter_cache.createAtomic(Work, Work.work, work, .{});
-        defer interpeter_cache_dir.close();
-
-        const stat = try interpeter_cache_dir.statFile("info.json");
-        const data = try interpeter_cache_dir.readFileAlloc(
-            allocator,
-            "info.json",
-            @intCast(stat.size),
-        );
-        defer allocator.free(data);
-
-        return try std.json.parseFromSlice(
-            Interpreter,
-            allocator,
-            data,
-            .{ .allocate = .alloc_always },
-        );
+        defer allocator.free(path);
+        std.fs.cwd().access(path, .{}) catch |err| {
+            log.debug(
+                "Failed to find base interpreter given base_prefix of {s} at {s}: {}",
+                .{ base_prefix, path, err },
+            );
+            return null;
+        };
+        return try Self.identify(allocator, path);
     }
+    return null;
+}
 
-    pub fn rankedTags(self: Self, allocator: std.mem.Allocator) !RankedTags {
-        return RankedTags.init(allocator, self.supported_tags);
-    }
-
-    pub fn resolve_base_interpreter(self: Self, allocator: std.mem.Allocator) !?std.json.Parsed(Self) {
-        if (self.base_prefix) |base_prefix| {
-            if (std.mem.eql(u8, base_prefix, self.prefix)) {
-                return null;
-            }
-            const path = res: {
-                if (native_os == .windows) {
-                    break :res try std.fs.path.join(
-                        allocator,
-                        &.{ base_prefix, std.fs.path.basename(self.path) },
-                    );
-                } else {
-                    break :res try std.fs.path.join(
-                        allocator,
-                        &.{ base_prefix, "bin", std.fs.path.basename(self.path) },
-                    );
-                }
-            };
-            defer allocator.free(path);
-            std.fs.cwd().access(path, .{}) catch |err| {
-                log.debug(
-                    "Failed to find base interpreter given base_prefix of {s} at {s}: {}",
-                    .{ base_prefix, path, err },
-                );
-                return null;
-            };
-            return try Self.identify(allocator, path);
-        }
-        return null;
-    }
-};
-
-pub const InterpreterIter = struct {
+pub const Iter = struct {
     const Candidate = struct {
         python_exe: []const u8,
         allocator: ?std.mem.Allocator = null,
 
-        fn deinit(self: @This()) void {
+        fn deinit(self: Candidate) void {
             if (self.allocator) |allocator| allocator.free(self.python_exe);
         }
     };
@@ -376,9 +368,7 @@ pub const InterpreterIter = struct {
     index: usize = 0,
     candidates: []const Candidate,
 
-    const Self = @This();
-
-    pub fn fromSearchPath(allocator: std.mem.Allocator, options: struct { search_path: ?[]const []const u8 = null }) !Self {
+    pub fn fromSearchPath(allocator: std.mem.Allocator, options: struct { search_path: ?[]const []const u8 = null }) !Iter {
         var path = options.search_path;
         if (path == null) {
             if (try getenv(allocator, "PATH")) |path_entries| {
@@ -542,13 +532,13 @@ pub const InterpreterIter = struct {
         return .{ .allocator = allocator, .candidates = try candidates.toOwnedSlice() };
     }
 
-    pub fn next(self: *Self) ?std.json.Parsed(Interpreter) {
+    pub fn next(self: *Iter) ?std.json.Parsed(Self) {
         if (self.index >= self.candidates.len) {
             return null;
         }
         defer self.index += 1;
         const candidate = self.candidates[self.index];
-        return Interpreter.identify(self.allocator, candidate.python_exe) catch |err| {
+        return Self.identify(self.allocator, candidate.python_exe) catch |err| {
             log.debug("Candidate {s} failed identification: {}", .{ candidate.python_exe, err });
             // TODO: XXX: Avoid recursion here - flatten with a loop.
             self.index += 1;
@@ -556,7 +546,7 @@ pub const InterpreterIter = struct {
         };
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: Iter) void {
         for (self.candidates) |candidate| {
             candidate.deinit();
         }
@@ -567,7 +557,7 @@ pub const InterpreterIter = struct {
 test "compare with packaging" {
     const Virtualenv = @import("Virtualenv.zig");
 
-    var interpreters = try InterpreterIter.fromSearchPath(std.testing.allocator, .{});
+    var interpreters = try Iter.fromSearchPath(std.testing.allocator, .{});
     defer interpreters.deinit();
 
     var seen = std.BufSet.init(std.testing.allocator);
@@ -772,13 +762,13 @@ test "fromSearchPath" {
         ));
     }
 
-    var interpreter_iter = try InterpreterIter.fromSearchPath(
+    var interpreter_iter = try Iter.fromSearchPath(
         std.testing.allocator,
         .{ .search_path = pex_python_path.items },
     );
     defer interpreter_iter.deinit();
 
-    var interpreters = try std.ArrayList(std.json.Parsed(Interpreter)).initCapacity(
+    var interpreters = try std.ArrayList(std.json.Parsed(Self)).initCapacity(
         std.testing.allocator,
         2,
     );

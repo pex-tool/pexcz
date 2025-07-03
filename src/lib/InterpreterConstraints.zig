@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const zeit = @import("zeit");
 
-const Interpreter = @import("interpreter.zig").Interpreter;
+const Interpreter = @import("Interpreter.zig");
 const Release = Version.Release;
 const PreRelease = Version.PreRelease;
 const Specifier = @import("Specifier.zig");
