@@ -636,25 +636,13 @@ test "compare with packaging" {
 
         try seen.insert(interpreter.value.realpath);
 
-        const CheckInstall = struct {
-            pub fn printError() void {
-                std.debug.print("Failed to install packaging.\n", .{});
-            }
-        };
-        try subprocess.run(
+        try subprocess.checkCall(
             std.testing.allocator,
             &.{ venv.interpreter_relpath, "-m", "pip", "install", "packaging" },
-            subprocess.CheckCall(CheckInstall.printError),
             .{ .extra_child_run_args = .{ .cwd = venv.path, .cwd_dir = venv.dir } },
         );
 
-        const CheckQuery = struct {
-            pub fn printError() void {
-                std.debug.print("Failed to query packaging for sys tags.\n", .{});
-            }
-        };
-
-        const output = try subprocess.run(
+        const output = try subprocess.checkOutput(
             std.testing.allocator,
             &.{
                 venv.interpreter_relpath,
@@ -668,7 +656,6 @@ test "compare with packaging" {
                 \\json.dump(list(map(str, tags.sys_tags())), sys.stdout)
                 \\
             },
-            subprocess.CheckOutput(CheckQuery.printError),
             .{ .extra_child_run_args = .{ .cwd = venv.path, .cwd_dir = venv.dir, .max_output_bytes = 1024 * 1024 } },
         );
         defer std.testing.allocator.free(output);

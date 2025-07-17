@@ -66,26 +66,19 @@ fn createPex(tmp_dir: std.testing.TmpDir, layout: Layout) ![]const u8 {
     );
     defer std.testing.allocator.free(python_exe);
 
-    const CheckCall = struct {
-        pub fn printError(msg: []const u8) void {
-            std.debug.print("Failed to {s}.\n", .{msg});
-        }
-    };
-    try subprocess.run(
+    try subprocess.checkCall(
         std.testing.allocator,
         &.{ python_exe, "-m", "pip", "install", "pex" },
-        subprocess.CheckCall(CheckCall.printError),
-        .{ .print_error_args = "install Pex" },
+        .{},
     );
 
     const pex = try std.fs.path.join(std.testing.allocator, &.{ tmp_dir_path, "empty.pex" });
     errdefer std.testing.allocator.free(pex);
 
-    try subprocess.run(
+    try subprocess.checkCall(
         std.testing.allocator,
         &.{ python_exe, "-m", "pex", "--layout", @tagName(layout), "-o", pex },
-        subprocess.CheckCall(CheckCall.printError),
-        .{ .print_error_args = "Create PEX" },
+        .{},
     );
     return pex;
 }
