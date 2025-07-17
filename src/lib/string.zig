@@ -62,7 +62,7 @@ pub fn sh_quote(allocator: std.mem.Allocator, value: []const u8) !ShSafeString {
             if (char == '\'') {
                 // N.B.: Once inside a single-quoted string, we need only quote the single quote
                 // itself.
-                try quoted.?.appendSlice("'\"'\"'");
+                try sh_quoted.appendSlice("'\"'\"'");
             } else {
                 try sh_quoted.append(char);
             }

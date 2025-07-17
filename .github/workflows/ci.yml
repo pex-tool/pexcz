@@ -86,6 +86,11 @@ jobs:
     steps:
       - name: Checkout pexcz
         uses: actions/checkout@v4
+      - name: Install Python
+        if: matrix.os == 'windows-11-arm'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@v6
         with:
