@@ -1,3 +1,4 @@
+const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
 const log = std.log.scoped(.layout);
@@ -7,22 +8,28 @@ const Layout = enum {
     @"packed",
     loose,
 
+    fn identifyPexDir(
+        pex: []const u8,
+    ) !Layout {
+        const pex_dir = try std.fs.cwd().openDir(pex, .{});
+        const bootstrap_stat = try pex_dir.statFile(".bootstrap");
+        if (bootstrap_stat.kind == .file) {
+            return .@"packed";
+        } else {
+            return .loose;
+        }
+    }
+
     pub fn identify(
         allocator: std.mem.Allocator,
         pex: []const u8,
         options: struct { follow_symlinks: bool = true },
     ) !Layout {
-        const stat = try std.fs.cwd().statFile(pex);
+        const stat = std.fs.cwd().statFile(pex) catch |err| {
+            return if (native_os == .windows and err == .isDir) identifyPexDir(pex) else err;
+        };
         switch (stat.kind) {
-            .directory => {
-                const pex_dir = try std.fs.cwd().openDir(pex, .{});
-                const bootstrap_stat = try pex_dir.statFile(".bootstrap");
-                if (bootstrap_stat.kind == .file) {
-                    return .@"packed";
-                } else {
-                    return .loose;
-                }
-            },
+            .directory => return identifyPexDir(pex),
             .sym_link => {
                 if (options.follow_symlinks) {
                     const realpath = try std.fs.cwd().realpathAlloc(allocator, pex);
