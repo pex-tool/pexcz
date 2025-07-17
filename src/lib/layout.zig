@@ -8,43 +8,39 @@ const Layout = enum {
     @"packed",
     loose,
 
-    fn identifyPexDir(
-        pex: []const u8,
-    ) !Layout {
-        const pex_dir = try std.fs.cwd().openDir(pex, .{});
-        const bootstrap_stat = try pex_dir.statFile(".bootstrap");
-        if (bootstrap_stat.kind == .file) {
-            return .@"packed";
-        } else {
-            return .loose;
+    fn isDir(
+        allocator: std.mem.Allocator,
+        dir: std.fs.Dir,
+        sub_path: []const u8,
+        follow_symlinks: bool,
+    ) !bool {
+        const stat = dir.statFile(sub_path) catch |err| {
+            return if (native_os == .windows and err == error.IsDir) true else err;
+        };
+        if (stat.kind == .sym_link) {
+            if (follow_symlinks) {
+                const realpath = try dir.realpathAlloc(allocator, sub_path);
+                defer allocator.free(realpath);
+
+                return try isDir(allocator, dir, realpath, false);
+            } else unreachable;
         }
+        return stat.kind == .directory;
     }
 
-    pub fn identify(
-        allocator: std.mem.Allocator,
-        pex: []const u8,
-        options: struct { follow_symlinks: bool = true },
-    ) !Layout {
-        const stat = std.fs.cwd().statFile(pex) catch |err| {
-            return if (native_os == .windows and err == .isDir) identifyPexDir(pex) else err;
-        };
-        switch (stat.kind) {
-            .directory => return identifyPexDir(pex),
-            .sym_link => {
-                if (options.follow_symlinks) {
-                    const realpath = try std.fs.cwd().realpathAlloc(allocator, pex);
-                    defer allocator.free(realpath);
-                    return try identify(allocator, realpath, .{ .follow_symlinks = false });
-                } else {
-                    log.err("Cannot identify {s} as a PEX in any known layout.", .{pex});
-                    return error.NotAPex;
-                }
-            },
-            .file => return .zipapp,
-            else => {
-                log.err("Cannot identify {s} as a PEX in any known layout.", .{pex});
-                return error.NotAPex;
-            },
+    pub fn identify(allocator: std.mem.Allocator, pex: []const u8) !Layout {
+        const cwd = std.fs.cwd();
+        if (try isDir(allocator, cwd, pex, true)) {
+            var pex_dir = try cwd.openDir(pex, .{});
+            defer pex_dir.close();
+
+            if (try isDir(allocator, pex_dir, ".bootstrap", true)) {
+                return .loose;
+            } else {
+                return .@"packed";
+            }
+        } else {
+            return .zipapp;
         }
     }
 };
@@ -120,7 +116,7 @@ test "identify zipapp" {
     const pex = try createPex(tmp_dir, .zipapp);
     defer std.testing.allocator.free(pex);
 
-    try std.testing.expectEqual(.zipapp, Layout.identify(std.testing.allocator, pex, .{}));
+    try std.testing.expectEqual(.zipapp, Layout.identify(std.testing.allocator, pex));
 }
 
 test "identify packed" {
@@ -130,7 +126,7 @@ test "identify packed" {
     const pex = try createPex(tmp_dir, .@"packed");
     defer std.testing.allocator.free(pex);
 
-    try std.testing.expectEqual(.@"packed", Layout.identify(std.testing.allocator, pex, .{}));
+    try std.testing.expectEqual(.@"packed", Layout.identify(std.testing.allocator, pex));
 }
 
 test "identify loose" {
