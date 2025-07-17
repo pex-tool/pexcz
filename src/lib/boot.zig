@@ -10,7 +10,7 @@ const Virtualenv = @import("Virtualenv.zig");
 const Zip = @import("Zip.zig");
 const cache = @import("cache.zig");
 const fs = @import("fs.zig");
-const getenv = @import("os.zig").getenv;
+const os = @import("os.zig");
 
 const log = std.log.scoped(.boot);
 
@@ -208,7 +208,7 @@ fn setupBoot(
             var matching_interp: ?std.json.Parsed(Interpreter) = null;
 
             var search_path: ?[]const []const u8 = null;
-            if (try getenv(allocator, "PEX_PYTHON_PATH")) |pex_python_path| {
+            if (try os.getEnv(allocator, "PEX_PYTHON_PATH")) |pex_python_path| {
                 defer pex_python_path.deinit();
 
                 var path = std.ArrayList([]const u8).init(allocator);

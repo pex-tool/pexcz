@@ -1,9 +1,31 @@
 const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
-const getenv = @import("os.zig").getenv;
+const os = @import("os.zig");
 
 const log = std.log.scoped(.fs);
+
+pub fn isDir(
+    allocator: std.mem.Allocator,
+    dir: std.fs.Dir,
+    sub_path: []const u8,
+    follow_symlinks: bool,
+) !bool {
+    const stat = dir.statFile(sub_path) catch |err| {
+        return if (native_os == .windows and err == error.IsDir) true else err;
+    };
+    if (stat.kind == .sym_link) {
+        if (follow_symlinks) {
+            const realpath = try dir.realpathAlloc(allocator, sub_path);
+            defer allocator.free(realpath);
+
+            return try isDir(allocator, dir, realpath, false);
+        } else {
+            return false;
+        }
+    }
+    return stat.kind == .directory;
+}
 
 const TempDirRoot = struct {
     path: []const u8,
@@ -41,7 +63,7 @@ fn tempDirRoot(allocator: std.mem.Allocator) !TempDirRoot {
     // The result of this search is cached.
     //
     for ([_][]const u8{ "TMPDIR", "TEMP", "TMP" }) |key| {
-        if (try getenv(allocator, key)) |tmp| {
+        if (try os.getEnv(allocator, key)) |tmp| {
             return .{ .path = tmp.value, .allocator = tmp.allocator };
         }
     }

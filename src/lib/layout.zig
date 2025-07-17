@@ -1,5 +1,6 @@
-const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
+
+const fs = @import("fs.zig");
 
 const log = std.log.scoped(.layout);
 
@@ -8,33 +9,13 @@ const Layout = enum {
     @"packed",
     loose,
 
-    fn isDir(
-        allocator: std.mem.Allocator,
-        dir: std.fs.Dir,
-        sub_path: []const u8,
-        follow_symlinks: bool,
-    ) !bool {
-        const stat = dir.statFile(sub_path) catch |err| {
-            return if (native_os == .windows and err == error.IsDir) true else err;
-        };
-        if (stat.kind == .sym_link) {
-            if (follow_symlinks) {
-                const realpath = try dir.realpathAlloc(allocator, sub_path);
-                defer allocator.free(realpath);
-
-                return try isDir(allocator, dir, realpath, false);
-            } else unreachable;
-        }
-        return stat.kind == .directory;
-    }
-
     pub fn identify(allocator: std.mem.Allocator, pex: []const u8) !Layout {
         const cwd = std.fs.cwd();
-        if (try isDir(allocator, cwd, pex, true)) {
+        if (try fs.isDir(allocator, cwd, pex, true)) {
             var pex_dir = try cwd.openDir(pex, .{});
             defer pex_dir.close();
 
-            if (try isDir(allocator, pex_dir, ".bootstrap", true)) {
+            if (try fs.isDir(allocator, pex_dir, ".bootstrap", true)) {
                 return .loose;
             } else {
                 return .@"packed";

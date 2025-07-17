@@ -6,7 +6,7 @@ const std = @import("std");
 
 const TempDirs = @import("fs.zig").TempDirs;
 const cache = @import("cache.zig");
-const getenv = @import("os.zig").getenv;
+const os = @import("os.zig");
 const subprocess = @import("subprocess.zig");
 pub const Marker = @import("Marker.zig");
 pub const RankedTags = @import("RankedTags.zig");
@@ -371,7 +371,7 @@ pub const Iter = struct {
     pub fn fromSearchPath(allocator: std.mem.Allocator, options: struct { search_path: ?[]const []const u8 = null }) !Iter {
         var path = options.search_path;
         if (path == null) {
-            if (try getenv(allocator, "PATH")) |path_entries| {
+            if (try os.getEnv(allocator, "PATH")) |path_entries| {
                 defer path_entries.deinit();
 
                 var buf = std.ArrayList([]const u8).init(allocator);
