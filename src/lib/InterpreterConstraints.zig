@@ -260,7 +260,7 @@ fn interpreter(
             };
             try subprocess.run(
                 allocator,
-                &.{ "uv", "python", "install", "--managed-python", spec },
+                &.{ "uv", "python", "install", spec },
                 subprocess.CheckCall(CheckInstall.printError),
                 .{ .print_error_args = spec },
             );
