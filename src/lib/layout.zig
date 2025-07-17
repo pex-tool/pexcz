@@ -136,5 +136,5 @@ test "identify loose" {
     const pex = try createPex(tmp_dir, .loose);
     defer std.testing.allocator.free(pex);
 
-    try std.testing.expectEqual(.loose, Layout.identify(std.testing.allocator, pex, .{}));
+    try std.testing.expectEqual(.loose, Layout.identify(std.testing.allocator, pex));
 }
