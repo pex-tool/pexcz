@@ -11,7 +11,17 @@ const string = @import("string.zig");
 
 const log = std.log.scoped(.ics);
 
-const PythonImplementation = enum { CPython, PyPy };
+pub const PythonImplementation = enum {
+    CPython,
+    PyPy,
+
+    pub fn binaryName(self: PythonImplementation) []const u8 {
+        switch (self) {
+            inline .CPython => return "python",
+            inline .PyPy => return "pypy",
+        }
+    }
+};
 
 const InterpreterConstraint = struct {
     impl: ?PythonImplementation,
@@ -210,7 +220,7 @@ fn maxMinor() u8 {
     };
 }
 
-pub fn compatible_versions_iter(
+pub fn compatibleVersionsIter(
     self: Self,
     options: struct { max: ?union(enum) { minor: u8, years_ahead: u8 } = null },
 ) CompatibleVersionsIter {
@@ -225,6 +235,133 @@ pub fn compatible_versions_iter(
         }
     };
     return .{ .constraints = self.constraints, .max_minor = max_minor };
+}
+
+pub const PythonBinaryName = struct {
+    value: []const u8,
+    allocator: ?std.mem.Allocator = null,
+
+    pub fn deinit(self: PythonBinaryName) void {
+        if (self.allocator) |alloc| alloc.free(self.value);
+    }
+
+    pub fn format(
+        self: PythonBinaryName,
+        fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        try writer.writeAll(self.value);
+    }
+};
+
+const PythonBinarySpec = struct {
+    impl: PythonImplementation,
+    major: u8,
+    minor: u8,
+
+    fn render(
+        self: PythonBinarySpec,
+        alloc: std.mem.Allocator,
+        version_components: enum { none, one, two },
+    ) !PythonBinaryName {
+        switch (version_components) {
+            .none => return .{ .value = self.impl.binaryName() },
+            .one => return .{
+                .value = try std.fmt.allocPrint(
+                    alloc,
+                    "{s}{d}",
+                    .{ self.impl.binaryName(), self.major },
+                ),
+                .allocator = alloc,
+            },
+            .two => return .{
+                .value = try std.fmt.allocPrint(
+                    alloc,
+                    "{s}{d}.{d}",
+                    .{ self.impl.binaryName(), self.major, self.minor },
+                ),
+                .allocator = alloc,
+            },
+        }
+    }
+};
+
+pub fn calculateApplicableBinaryNames(
+    self: Self,
+    allocator: std.mem.Allocator,
+) ![]const PythonBinaryName {
+    var python_binary_names = std.ArrayList(PythonBinarySpec).init(allocator);
+    defer python_binary_names.deinit();
+
+    var compatible_versions_iter = self.compatibleVersionsIter(.{});
+    while (compatible_versions_iter.next()) |python_version| {
+        if (python_version.impl) |impl| {
+            try python_binary_names.append(
+                .{
+                    .impl = impl,
+                    .major = python_version.major,
+                    .minor = python_version.minor,
+                },
+            );
+        } else {
+            inline for ([_]PythonImplementation{ .CPython, .PyPy }) |impl| {
+                try python_binary_names.append(
+                    .{
+                        .impl = impl,
+                        .major = python_version.major,
+                        .minor = python_version.minor,
+                    },
+                );
+            }
+        }
+    }
+
+    const lessThan = struct {
+        fn lessThan(_: void, lhs: PythonBinarySpec, rhs: PythonBinarySpec) bool {
+            if (lhs.impl != rhs.impl) return lhs.impl == PythonImplementation.CPython;
+            if (lhs.major != rhs.major) return lhs.major > rhs.major;
+            return lhs.minor > rhs.minor;
+        }
+    }.lessThan;
+    std.mem.sort(PythonBinarySpec, python_binary_names.items, {}, lessThan);
+
+    var names = std.ArrayList(PythonBinaryName).init(allocator);
+    errdefer {
+        for (names.items) |name| {
+            name.deinit();
+        }
+        names.deinit();
+    }
+
+    for (python_binary_names.items) |python_binary_name| {
+        try names.append(try python_binary_name.render(allocator, .two));
+    }
+
+    var seen = std.StringHashMap(void).init(allocator);
+    defer seen.deinit();
+
+    for (python_binary_names.items) |python_binary_name| {
+        const name = try python_binary_name.render(allocator, .one);
+        if (seen.contains(name.value)) {
+            name.deinit();
+        } else {
+            try seen.put(name.value, {});
+            try names.append(name);
+        }
+    }
+    for (python_binary_names.items) |python_binary_name| {
+        const name = try python_binary_name.render(allocator, .none);
+        if (seen.contains(name.value)) {
+            name.deinit();
+        } else {
+            try seen.put(name.value, {});
+            try names.append(name);
+        }
+    }
+
+    return try names.toOwnedSlice();
 }
 
 fn interpreter(
@@ -451,7 +588,7 @@ test "Compatible versions simple" {
     var actual_versions = std.ArrayList(PythonVersion).init(std.testing.allocator);
     defer actual_versions.deinit();
 
-    var iter = ics.compatible_versions_iter(.{ .max = .{ .minor = 6 } });
+    var iter = ics.compatibleVersionsIter(.{ .max = .{ .minor = 6 } });
     while (iter.next()) |version| try actual_versions.append(version);
 
     try std.testing.expectEqualDeep(
@@ -471,7 +608,7 @@ test "Compatible versions ORed" {
     var actual_versions = std.ArrayList(PythonVersion).init(std.testing.allocator);
     defer actual_versions.deinit();
 
-    var iter = ics.compatible_versions_iter(.{ .max = .{ .minor = 14 } });
+    var iter = ics.compatibleVersionsIter(.{ .max = .{ .minor = 14 } });
     while (iter.next()) |version| try actual_versions.append(version);
 
     try std.testing.expectEqualDeep(
@@ -484,4 +621,66 @@ test "Compatible versions ORed" {
         },
         actual_versions.items,
     );
+}
+
+test "calculateApplicableBinaryNames impl pinned" {
+    const interpreter_constraints = try Self.parse(std.testing.allocator, &.{"CPython~=3.9"});
+    defer interpreter_constraints.deinit();
+
+    const actual_names = try interpreter_constraints.calculateApplicableBinaryNames(
+        std.testing.allocator,
+    );
+    defer {
+        for (actual_names) |name| {
+            name.deinit();
+        }
+        std.testing.allocator.free(actual_names);
+    }
+
+    const expected_names: []const []const u8 = &.{
+        "python3.14",
+        "python3.13",
+        "python3.12",
+        "python3.11",
+        "python3.10",
+        "python3.9",
+        "python3",
+        "python",
+    };
+    for (expected_names, actual_names) |expected, actual| {
+        try std.testing.expectEqualStrings(expected, actual.value);
+    }
+}
+
+test "calculateApplicableBinaryNames no impl" {
+    const interpreter_constraints = try Self.parse(std.testing.allocator, &.{"~=3.11"});
+    defer interpreter_constraints.deinit();
+
+    const actual_names = try interpreter_constraints.calculateApplicableBinaryNames(
+        std.testing.allocator,
+    );
+    defer {
+        for (actual_names) |name| {
+            name.deinit();
+        }
+        std.testing.allocator.free(actual_names);
+    }
+
+    const expected_names: []const []const u8 = &.{
+        "python3.14",
+        "python3.13",
+        "python3.12",
+        "python3.11",
+        "pypy3.14",
+        "pypy3.13",
+        "pypy3.12",
+        "pypy3.11",
+        "python3",
+        "pypy3",
+        "python",
+        "pypy",
+    };
+    for (expected_names, actual_names) |expected, actual| {
+        try std.testing.expectEqualStrings(expected, actual.value);
+    }
 }

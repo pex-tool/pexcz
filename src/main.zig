@@ -1,12 +1,15 @@
 const builtin = @import("builtin");
-const std = @import("std");
 const native_os = builtin.target.os.tag;
+const std = @import("std");
 
-const pexcz = @import("pexcz");
 const Allocator = pexcz.Allocator;
+const InterpreterConstraints = pexcz.InterpreterConstraints;
+const PexInfo = pexcz.PexInfo;
 const Zip = pexcz.Zip;
 const c = Zip.c;
 const config = @import("config");
+const pexcz = @import("pexcz");
+const string = pexcz.string;
 
 const EmbeddedLib = struct {
     []const u8,
@@ -62,16 +65,128 @@ const CompressionOptions = struct {
     level: i8 = 0,
 };
 
+fn join_quote(
+    allocator: std.mem.Allocator,
+    args: []const []const u8,
+    separator: []const u8,
+) ![]const u8 {
+    var estimated_length: usize = 0;
+    for (args) |arg| {
+        estimated_length += arg.len + 1;
+    }
+    var buffer = try std.ArrayList(u8).initCapacity(allocator, estimated_length * 2);
+    errdefer buffer.deinit();
+
+    for (args) |arg| {
+        const quoted = try string.sh_quote(allocator, arg);
+        defer quoted.deinit();
+
+        if (buffer.items.len > 0) {
+            try buffer.appendSlice(separator);
+        }
+        try buffer.appendSlice(quoted.value);
+    }
+    return try buffer.toOwnedSlice();
+}
+
 fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
+    // TODO(John Sirois): Handle packed and loose layouts:
+    // + https://github.com/pex-tool/pexcz/issues/30
+    // + https://github.com/pex-tool/pexcz/issues/31
+    //
+    // In particular, `export PEX="$0"` goes to `export PEX=$(dirname "$0")` in those cases.
+
     const pex_info_data = try pex.extractToSlice(allocator, "PEX-INFO") orelse {
         log.err("The PEX at {s} does not contain a PEX-INFO zip entry.", .{pex.path});
         return error.PexInfoNotFound;
     };
 
-    const parsed_pex_info = try pexcz.PexInfo.parse(allocator, pex_info_data);
+    const parsed_pex_info = try PexInfo.parse(allocator, pex_info_data);
     defer parsed_pex_info.deinit();
 
     const pex_info = parsed_pex_info.value;
+
+    const python = "";
+    const python_args = pex_info.inject_python_args;
+    const venv_python_args = res: {
+        if (pex_info.venv_hermetic_scripts) {
+            var args = try std.ArrayList([]const u8).initCapacity(
+                allocator,
+                pex_info.inject_python_args.len + 1,
+            );
+            try args.append("-sE");
+            break :res try args.toOwnedSlice();
+        } else {
+            break :res pex_info.inject_python_args;
+        }
+    };
+    defer if (pex_info.venv_hermetic_scripts) allocator.free(venv_python_args);
+
+    const joined_python_args = try join_quote(allocator, python_args, " ");
+    defer allocator.free(joined_python_args);
+
+    const joined_venv_python_args = try join_quote(allocator, venv_python_args, " ");
+    defer allocator.free(joined_venv_python_args);
+
+    const interpreter_constraints = try InterpreterConstraints.parse(
+        allocator,
+        pex_info.interpreter_constraints,
+    );
+    defer interpreter_constraints.deinit();
+
+    const pythons = try interpreter_constraints.calculateApplicableBinaryNames(allocator);
+    defer {
+        for (pythons) |py| {
+            py.deinit();
+        }
+        allocator.free(pythons);
+    }
+    var joined_python_names = std.ArrayList(u8).init(allocator);
+    defer joined_python_names.deinit();
+
+    for (pythons, 0..) |py, index| {
+        if (index > 0) {
+            try joined_python_names.appendSlice(" \\\n");
+        }
+        try joined_python_names.append('"');
+        try joined_python_names.appendSlice(py.value);
+        try joined_python_names.append('"');
+    }
+
+    //     python = ""  # type: str
+    //     python_args = list(pex_info.inject_python_args)  # type: List[str]
+    //     if python_shebang:
+    //         shebang = python_shebang[2:] if python_shebang.startswith("#!") else python_shebang
+    //         # Drop leading `/usr/bin/env [args]?`.
+    //         args = list(
+    //             itertools.dropwhile(
+    //                 lambda word: not PythonInterpreter.matches_binary_name(word),
+    //                 shlex.split(shebang, posix=not WINDOWS),
+    //             )
+    //         )
+    //         python = args[0]
+    //         python_args.extend(args[1:])
+    //     venv_python_args = python_args[:]
+    //     if pex_info.venv_hermetic_scripts:
+    //         venv_python_args.append("-sE")
+    //
+    //     python_names = tuple(
+    //         _calculate_applicable_binary_names(
+    //             targets=targets,
+    //             interpreter_constraints=pex_info.interpreter_constraints,
+    //         )
+    //     )
+    //
+    //     venv_dir = pex_info.raw_venv_dir(pex_file=pex_name, interpreter=interpreter)
+    //     if venv_dir:
+    //         pex_installed_path = venv_dir.path
+    //     else:
+    //         pex_hash = pex_info.pex_hash
+    //         if pex_hash is None:
+    //             raise ValueError("Expected pex_hash to be set already in PEX-INFO.")
+    //         pex_installed_path = variables.unzip_dir(
+    //             pex_info.raw_pex_root, pex_hash, expand_pex_root=False
+    //         )
 
     return try std.fmt.allocPrint(
         allocator,
@@ -81,24 +196,23 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         \\# See: https://pubs.opengroup.org/onlinepubs/9699919799/idx/shell.html
         \\set -eu
         \\
-        \\VENV="{[venv]s}"
         \\VENV_PYTHON_ARGS="{[venv_python_args]s}"
         \\
         \\# N.B.: This ensures tilde-expansion of the DEFAULT_PEX_ROOT value.
-        \\DEFAULT_PEX_ROOT="$(echo {[pex_root]s})"
+        \\DEFAULT_CZEX_ROOT="$(echo {[czex_root]s})"
         \\
         \\DEFAULT_PYTHON="{[python]s}"
         \\PYTHON_ARGS="{[python_args]s}"
         \\
-        \\PEX_ROOT="${{PEX_ROOT:-${{DEFAULT_PEX_ROOT}}}}"
-        \\INSTALLED_PEX="${{PEX_ROOT}}/{[pex_installed_relpath]s}"
+        \\CZEX_ROOT="${{PEX_ROOT:-${{DEFAULT_CZEX_ROOT}}}}"
+        \\INSTALLED_CZEX="${{PEX_ROOT}}/{[czex_installed_relpath]s}"
         \\
-        \\if [ -n "${{VENV}}" -a -x "${{INSTALLED_PEX}}" -a -z "${{PEX_TOOLS:-}}" ]; then
+        \\if [ -x "${{INSTALLED_PEX}}" -a -z "${{PEX_TOOLS:-}}" ]; then
         \\    # We're a --venv execution mode PEX installed under the PEX_ROOT and the venv
         \\    # interpreter to use is embedded in the shebang of our venv pex script; so just
         \\    # execute that script directly... except if we're needing to execute PEX code, in
         \\    # the form of the tools.
-        \\    export PEX="{pex}"
+        \\    export PEX="$0"
         \\    exec "${{INSTALLED_PEX}}/bin/python" ${{VENV_PYTHON_ARGS}} "${{INSTALLED_PEX}}" \\
         \\        "$@"
         \\fi
@@ -122,20 +236,12 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         \\    if [ -n "${{PEX_VERBOSE:-}}" ]; then
         \\        echo >&2 "$0 used /bin/sh boot to select python: ${{python_exe}} for re-exec..."
         \\    fi
-        \\    if [ -z "${{VENV}}" -a -e "${{INSTALLED_PEX}}" ]; then
-        \\        # We're a --zipapp execution mode PEX installed under the PEX_ROOT with a
-        \\        # __main__.py in our top-level directory; so execute Python against that
-        \\        # directory.
-        \\        export __PEX_EXE__="{[pex]s}"
-        \\        exec "${{python_exe}}" ${{PYTHON_ARGS}} "${{INSTALLED_PEX}}" "$@"
-        \\    else
-        \\        # The slow path: this PEX zipapp is not installed yet. Run the PEX zipapp so it
-        \\        # can install itself, rebuilding its fast path layout under the PEX_ROOT.
-        \\        if [ -n "${{PEX_VERBOSE:-}}" ]; then
-        \\            echo >&2 "Running zipapp pex to lay itself out under PEX_ROOT."
-        \\        fi
-        \\        exec "${{python_exe}}" ${{PYTHON_ARGS}} "$0" "$@"
+        \\    # The slow path: this CZEX is not installed yet. Run the CZEX so it can install
+        \\    # itself, rebuilding its fast path venv under the PEX_ROOT.
+        \\    if [ -n "${{PEX_VERBOSE:-}}" ]; then
+        \\        echo >&2 "Running CZEX to to create its venv under the PEX_ROOT."
         \\    fi
+        \\    exec "${{python_exe}}" ${{PYTHON_ARGS}} "$0" "$@"
         \\fi
         \\
         \\echo >&2 "Failed to find any of these python binaries on the PATH:"
@@ -151,16 +257,23 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         \\exit 1
     ,
         .{
-            .venv = "",
-            .venv_python_args = "",
-            .pex_root = if (pex_info.interpreter_constraints.len > 0) pex_info.interpreter_constraints[0] else "",
-            .python = "",
-            .python_args = "",
-            .pex_installed_relpath = "",
-            .pythons = "",
-            .pex = "",
+            .czex_installed_relpath = "",
+            .czex_root = "",
+            .python = python,
+            .python_args = joined_python_args,
+            .pythons = joined_python_names.items,
+            .venv_python_args = joined_venv_python_args,
         },
     );
+
+    //         python=python,
+    //         python_args=" ".join(shlex_quote(python_arg) for python_arg in python_args),
+    //         pythons=" \\\n".join('"{python}"'.format(python=python) for python in python_names),
+    //         pex_root=pex_info.raw_pex_root,
+    //         pex_installed_relpath=os.path.relpath(pex_installed_path, pex_info.raw_pex_root),
+    //         venv_python_args=" ".join(
+    //             shlex_quote(venv_python_arg) for venv_python_arg in venv_python_args
+    //         ),
 }
 
 const sh_boot_shebang = "#!/bin/sh\n";
