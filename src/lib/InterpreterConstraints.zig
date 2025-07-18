@@ -261,29 +261,25 @@ const PythonBinarySpec = struct {
     major: u8,
     minor: u8,
 
+    const name_buf_len = std.fs.max_name_bytes;
+
     fn render(
         self: PythonBinarySpec,
-        alloc: std.mem.Allocator,
+        buf: *[name_buf_len]u8,
         version_components: enum { none, one, two },
-    ) !PythonBinaryName {
+    ) ![]const u8 {
         switch (version_components) {
-            .none => return .{ .value = self.impl.binaryName() },
-            .one => return .{
-                .value = try std.fmt.allocPrint(
-                    alloc,
-                    "{s}{d}",
-                    .{ self.impl.binaryName(), self.major },
-                ),
-                .allocator = alloc,
-            },
-            .two => return .{
-                .value = try std.fmt.allocPrint(
-                    alloc,
-                    "{s}{d}.{d}",
-                    .{ self.impl.binaryName(), self.major, self.minor },
-                ),
-                .allocator = alloc,
-            },
+            .none => return self.impl.binaryName(),
+            .one => return try std.fmt.bufPrint(
+                buf,
+                "{s}{d}",
+                .{ self.impl.binaryName(), self.major },
+            ),
+            .two => return try std.fmt.bufPrint(
+                buf,
+                "{s}{d}.{d}",
+                .{ self.impl.binaryName(), self.major, self.minor },
+            ),
         }
     }
 };
@@ -291,14 +287,14 @@ const PythonBinarySpec = struct {
 pub fn calculateApplicableBinaryNames(
     self: Self,
     allocator: std.mem.Allocator,
-) ![]const PythonBinaryName {
-    var python_binary_names = std.ArrayList(PythonBinarySpec).init(allocator);
-    defer python_binary_names.deinit();
+) ![]const []const u8 {
+    var python_binary_specs = std.ArrayList(PythonBinarySpec).init(allocator);
+    defer python_binary_specs.deinit();
 
     var compatible_versions_iter = self.compatibleVersionsIter(.{});
     while (compatible_versions_iter.next()) |python_version| {
         if (python_version.impl) |impl| {
-            try python_binary_names.append(
+            try python_binary_specs.append(
                 .{
                     .impl = impl,
                     .major = python_version.major,
@@ -307,7 +303,7 @@ pub fn calculateApplicableBinaryNames(
             );
         } else {
             inline for ([_]PythonImplementation{ .CPython, .PyPy }) |impl| {
-                try python_binary_names.append(
+                try python_binary_specs.append(
                     .{
                         .impl = impl,
                         .major = python_version.major,
@@ -325,39 +321,39 @@ pub fn calculateApplicableBinaryNames(
             return lhs.minor > rhs.minor;
         }
     }.lessThan;
-    std.mem.sort(PythonBinarySpec, python_binary_names.items, {}, lessThan);
+    std.mem.sort(PythonBinarySpec, python_binary_specs.items, {}, lessThan);
 
-    var names = std.ArrayList(PythonBinaryName).init(allocator);
+    var names = std.ArrayList([]const u8).init(allocator);
     errdefer {
         for (names.items) |name| {
-            name.deinit();
+            allocator.free(name);
         }
         names.deinit();
     }
 
-    for (python_binary_names.items) |python_binary_name| {
-        try names.append(try python_binary_name.render(allocator, .two));
+    var buf: [PythonBinarySpec.name_buf_len]u8 = undefined;
+    for (python_binary_specs.items) |python_binary_spec| {
+        const name = try python_binary_spec.render(&buf, .two);
+        try names.append(try allocator.dupe(u8, name));
     }
 
     var seen = std.StringHashMap(void).init(allocator);
     defer seen.deinit();
 
-    for (python_binary_names.items) |python_binary_name| {
-        const name = try python_binary_name.render(allocator, .one);
-        if (seen.contains(name.value)) {
-            name.deinit();
-        } else {
-            try seen.put(name.value, {});
-            try names.append(name);
+    for (python_binary_specs.items) |python_binary_spec| {
+        const name = try python_binary_spec.render(&buf, .one);
+        if (!seen.contains(name)) {
+            const binary_name = try allocator.dupe(u8, name);
+            try seen.put(binary_name, {});
+            try names.append(binary_name);
         }
     }
-    for (python_binary_names.items) |python_binary_name| {
-        const name = try python_binary_name.render(allocator, .none);
-        if (seen.contains(name.value)) {
-            name.deinit();
-        } else {
-            try seen.put(name.value, {});
-            try names.append(name);
+    for (python_binary_specs.items) |python_binary_spec| {
+        const name = try python_binary_spec.render(&buf, .none);
+        if (!seen.contains(name)) {
+            const binary_name = try allocator.dupe(u8, name);
+            try seen.put(binary_name, {});
+            try names.append(binary_name);
         }
     }
 
@@ -632,7 +628,7 @@ test "calculateApplicableBinaryNames impl pinned" {
     );
     defer {
         for (actual_names) |name| {
-            name.deinit();
+            std.testing.allocator.free(name);
         }
         std.testing.allocator.free(actual_names);
     }
@@ -648,7 +644,7 @@ test "calculateApplicableBinaryNames impl pinned" {
         "python",
     };
     for (expected_names, actual_names) |expected, actual| {
-        try std.testing.expectEqualStrings(expected, actual.value);
+        try std.testing.expectEqualStrings(expected, actual);
     }
 }
 
@@ -661,7 +657,7 @@ test "calculateApplicableBinaryNames no impl" {
     );
     defer {
         for (actual_names) |name| {
-            name.deinit();
+            std.testing.allocator.free(name);
         }
         std.testing.allocator.free(actual_names);
     }
@@ -681,6 +677,6 @@ test "calculateApplicableBinaryNames no impl" {
         "pypy",
     };
     for (expected_names, actual_names) |expected, actual| {
-        try std.testing.expectEqualStrings(expected, actual.value);
+        try std.testing.expectEqualStrings(expected, actual);
     }
 }

@@ -7,7 +7,9 @@ const InterpreterConstraints = pexcz.InterpreterConstraints;
 const PexInfo = pexcz.PexInfo;
 const Zip = pexcz.Zip;
 const c = Zip.c;
+const cache = pexcz.cache;
 const config = @import("config");
+const fs = pexcz.fs;
 const pexcz = @import("pexcz");
 const string = pexcz.string;
 
@@ -96,6 +98,12 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
     //
     // In particular, `export PEX="$0"` goes to `export PEX=$(dirname "$0")` in those cases.
 
+    var temp_dirs = fs.TempDirs.init(allocator);
+    defer temp_dirs.deinit();
+
+    const pexcz_root = try cache.root(allocator, &temp_dirs, .{});
+    defer pexcz_root.deinit(.{});
+
     const pex_info_data = try pex.extractToSlice(allocator, "PEX-INFO") orelse {
         log.err("The PEX at {s} does not contain a PEX-INFO zip entry.", .{pex.path});
         return error.PexInfoNotFound;
@@ -134,22 +142,24 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
     );
     defer interpreter_constraints.deinit();
 
-    const pythons = try interpreter_constraints.calculateApplicableBinaryNames(allocator);
+    const python_binary_names = try interpreter_constraints.calculateApplicableBinaryNames(
+        allocator,
+    );
     defer {
-        for (pythons) |py| {
-            py.deinit();
+        for (python_binary_names) |python_binary_name| {
+            allocator.free(python_binary_name);
         }
-        allocator.free(pythons);
+        allocator.free(python_binary_names);
     }
     var joined_python_names = std.ArrayList(u8).init(allocator);
     defer joined_python_names.deinit();
 
-    for (pythons, 0..) |py, index| {
+    for (python_binary_names, 0..) |python_binary_name, index| {
         if (index > 0) {
             try joined_python_names.appendSlice(" \\\n");
         }
         try joined_python_names.append('"');
-        try joined_python_names.appendSlice(py.value);
+        try joined_python_names.appendSlice(python_binary_name);
         try joined_python_names.append('"');
     }
 
@@ -258,7 +268,7 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
     ,
         .{
             .czex_installed_relpath = "",
-            .czex_root = "",
+            .czex_root = "", // TODO: XXX: Pex gets this wrong - need to use pex_info value or else script needs to determine default based on OS at runtime.
             .python = python,
             .python_args = joined_python_args,
             .pythons = joined_python_names.items,
