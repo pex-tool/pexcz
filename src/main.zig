@@ -201,7 +201,6 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
     return try std.fmt.allocPrint(
         allocator,
         \\#!/bin/sh
-        \\
         \\# N.B.: This script should stick to syntax defined for POSIX `sh` and avoid non-builtins.
         \\# See: https://pubs.opengroup.org/onlinepubs/9699919799/idx/shell.html
         \\set -eu
@@ -223,13 +222,13 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         \\    # execute that script directly... except if we're needing to execute PEX code, in
         \\    # the form of the tools.
         \\    export PEX="$0"
-        \\    exec "${{INSTALLED_PEX}}/bin/python" ${{VENV_PYTHON_ARGS}} "${{INSTALLED_PEX}}" \\
+        \\    exec "${{INSTALLED_PEX}}/bin/python" ${{VENV_PYTHON_ARGS}} "${{INSTALLED_PEX}}" \
         \\        "$@"
         \\fi
         \\
         \\find_python() {{
-        \\    for python in \\
-        \\{[pythons]s} \\
+        \\    for python in \
+        \\{[pythons]s} \
         \\    ; do
         \\        if command -v "${{python}}" 2>/dev/null; then
         \\            return
@@ -255,8 +254,8 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         \\fi
         \\
         \\echo >&2 "Failed to find any of these python binaries on the PATH:"
-        \\for python in \\
-        \\{[pythons]s} \\
+        \\for python in \
+        \\{[pythons]s} \
         \\; do
         \\    echo >&2 "${{python}}"
         \\done
