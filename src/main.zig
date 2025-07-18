@@ -147,7 +147,7 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
     );
     defer {
         for (python_binary_names) |python_binary_name| {
-            allocator.free(python_binary_name);
+            python_binary_name.deinit();
         }
         allocator.free(python_binary_names);
     }
@@ -159,7 +159,7 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
             try joined_python_names.appendSlice(" \\\n");
         }
         try joined_python_names.append('"');
-        try joined_python_names.appendSlice(python_binary_name);
+        try joined_python_names.appendSlice(python_binary_name.value);
         try joined_python_names.append('"');
     }
 
