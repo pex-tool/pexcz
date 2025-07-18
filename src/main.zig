@@ -114,7 +114,7 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
 
     const pex_info = parsed_pex_info.value;
 
-    const python = "";
+    const python = ""; // TODO: XXX
     const python_args = pex_info.inject_python_args;
     const venv_python_args = res: {
         if (pex_info.venv_hermetic_scripts) {
@@ -207,22 +207,29 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         \\
         \\VENV_PYTHON_ARGS="{[venv_python_args]s}"
         \\
-        \\# N.B.: This ensures tilde-expansion of the DEFAULT_PEX_ROOT value.
+        \\# N.B.: This ensures tilde-expansion of the DEFAULT_CZEX_ROOT value.
         \\DEFAULT_CZEX_ROOT="$(echo {[czex_root]s})"
+        \\if [ -z "${{DEFAULT_CZEX_ROOT}}" ]; then
+        \\    if uname -s | grep -iE 'mac|darwin' > /dev/null; then
+        \\        DEFAULT_CZEX_ROOT="$(echo ~/Library/Caches/pexcz)"
+        \\    else
+        \\        DEFAULT_CZEX_ROOT="$(echo ~/.cache/pexcz)"
+        \\    fi
+        \\fi
         \\
         \\DEFAULT_PYTHON="{[python]s}"
         \\PYTHON_ARGS="{[python_args]s}"
         \\
-        \\CZEX_ROOT="${{PEX_ROOT:-${{DEFAULT_CZEX_ROOT}}}}"
-        \\INSTALLED_CZEX="${{PEX_ROOT}}/{[czex_installed_relpath]s}"
+        \\CZEX_ROOT="${{CZEX_ROOT:-${{DEFAULT_CZEX_ROOT}}}}"
+        \\INSTALLED_CZEX="${{CZEX_ROOT}}/{[czex_installed_relpath]s}"
         \\
-        \\if [ -x "${{INSTALLED_PEX}}" -a -z "${{PEX_TOOLS:-}}" ]; then
+        \\if [ -x "${{INSTALLED_CZEX}}" -a -z "${{PEX_TOOLS:-}}" ]; then
         \\    # We're a --venv execution mode PEX installed under the PEX_ROOT and the venv
         \\    # interpreter to use is embedded in the shebang of our venv pex script; so just
         \\    # execute that script directly... except if we're needing to execute PEX code, in
         \\    # the form of the tools.
         \\    export PEX="$0"
-        \\    exec "${{INSTALLED_PEX}}/bin/python" ${{VENV_PYTHON_ARGS}} "${{INSTALLED_PEX}}" \
+        \\    exec "${{INSTALLED_CZEX}}/bin/python" ${{VENV_PYTHON_ARGS}} "${{INSTALLED_CZEX}}" \
         \\        "$@"
         \\fi
         \\
@@ -266,23 +273,15 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         \\exit 1
     ,
         .{
+            // TODO: XXX: Need to be able to calculate the venv dir relpath.
             .czex_installed_relpath = "",
-            .czex_root = "", // TODO: XXX: Pex gets this wrong - need to use pex_info value or else script needs to determine default based on OS at runtime.
+            .czex_root = pex_info.pex_root orelse "",
             .python = python,
             .python_args = joined_python_args,
             .pythons = joined_python_names.items,
             .venv_python_args = joined_venv_python_args,
         },
     );
-
-    //         python=python,
-    //         python_args=" ".join(shlex_quote(python_arg) for python_arg in python_args),
-    //         pythons=" \\\n".join('"{python}"'.format(python=python) for python in python_names),
-    //         pex_root=pex_info.raw_pex_root,
-    //         pex_installed_relpath=os.path.relpath(pex_installed_path, pex_info.raw_pex_root),
-    //         venv_python_args=" ".join(
-    //             shlex_quote(venv_python_arg) for venv_python_arg in venv_python_args
-    //         ),
 }
 
 const sh_boot_shebang = "#!/bin/sh\n";

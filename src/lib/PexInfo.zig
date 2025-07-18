@@ -22,6 +22,7 @@ inject_env: std.json.ArrayHashMap([]const u8),
 entry_point: ?[]const u8 = null,
 script: ?[]const u8 = null,
 strip_pex_env: ?bool = null,
+pex_root: ?[]const u8 = null,
 
 const Self = @This();
 
