@@ -582,7 +582,7 @@ pub fn main() !u8 {
     const allocator = alloc.allocator();
 
     const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    errdefer std.process.argsFree(allocator, args);
 
     const prog = args[0];
     var result: u8 = 0;
@@ -620,6 +620,8 @@ pub fn main() !u8 {
     } else {
         help(prog);
     }
+
+    std.process.argsFree(allocator, args);
     if (alloc.deinit() != .ok) {
         return @intFromEnum(BootResult.boot_error);
     } else {
