@@ -191,6 +191,13 @@ pub const CompatibleVersionsIter = struct {
 };
 
 fn maxMinor() u8 {
+    // N.B.: This computes the maximum CPython minor version assuming CPython sticks to ~semver and
+    // does not switch to calver.
+    // + Release Schedule: https://peps.python.org/pep-0602/
+    // + Rejected calver proposal: https://peps.python.org/pep-2026/
+    //
+    // Given PyPy history and the structure of the project, this max should always be greater than
+    // the PyPy max minor.
     const static = struct {
         var max_minor: ?u8 = null;
     };
