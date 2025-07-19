@@ -6,6 +6,19 @@ platform: []const u8,
 
 const Self = @This();
 
+pub fn eql(self: Self, other: Self) bool {
+    inline for (std.meta.fields(Self)) |field_info| {
+        if (field_info.type != []const u8) {
+            @compileError(
+                "The eql method needs to be adjusted to take account of Tag struct changes.",
+            );
+        }
+        const field_name = field_info.name;
+        if (!std.mem.eql(u8, @field(self, field_name), @field(other, field_name))) return false;
+    }
+    return true;
+}
+
 pub fn format(
     self: Self,
     fmt: []const u8,
@@ -45,4 +58,21 @@ pub fn jsonParse(
         },
         else => return error.UnexpectedToken,
     };
+}
+
+test "eql" {
+    const first = Self{ .python = "", .abi = "", .platform = ""};
+    try std.testing.expect(std.meta.eql(first, first));
+    try std.testing.expect(first.eql(first));
+
+    const second = Self{ .python = "", .abi = "", .platform = ""};
+    try std.testing.expect(std.meta.eql(first, second));
+    try std.testing.expect(first.eql(second));
+
+    const python = try std.testing.allocator.dupe(u8, "");
+    defer std.testing.allocator.free(python);
+
+    const third = Self{ .python = python, .abi = "", .platform = ""};
+    try std.testing.expect(!std.meta.eql(first, third));
+    try std.testing.expect(first.eql(third));
 }
