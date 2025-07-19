@@ -689,3 +689,10 @@ test "calculateApplicableBinaryNames no impl" {
         try std.testing.expectEqualStrings(expected, actual.value);
     }
 }
+
+test "parse empty" {
+    const interpreter_constraints = try Self.parse(std.testing.allocator, &.{});
+    defer interpreter_constraints.deinit();
+
+    try std.testing.expectEqual(0, interpreter_constraints.constraints.len);
+}
