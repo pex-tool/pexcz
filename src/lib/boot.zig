@@ -248,29 +248,13 @@ fn setupBoot(
         }
     }
 
-    const encoder = std.fs.base64_encoder;
-    const pex_hash_bytes = @as(
-        [20]u8,
-        @bitCast(try std.fmt.parseUnsigned(u160, pex_info.value.pex_hash, 16)),
-    );
-
-    // TODO: XXX: Account for PEX_PATH
-    var venv_digest = std.crypto.hash.Sha1.init(.{});
-    venv_digest.update(&pex_hash_bytes);
-    const tag = interp.value.supported_tags[0];
-    venv_digest.update(tag.python);
-    venv_digest.update(tag.abi);
-    venv_digest.update(tag.platform);
-    const venv_hash_bytes = venv_digest.finalResult();
-
-    var encoded_venv_hash_buf: [27]u8 = undefined;
-    std.debug.assert(encoded_venv_hash_buf.len == encoder.calcSize(venv_hash_bytes.len));
-    const pex_hash = encoder.encode(&encoded_venv_hash_buf, &venv_hash_bytes);
+    const venv_relpath = try VenvPex.calculateVenvRelpath(allocator, pex_info.value, .{});
+    defer allocator.free(venv_relpath);
 
     const pexcz_root = try cache.root(allocator, &temp_dirs, .{});
     defer pexcz_root.deinit(.{});
 
-    var venv_cache_dir = try pexcz_root.join(&.{ "venvs", "0", pex_hash });
+    var venv_cache_dir = try pexcz_root.join(&.{venv_relpath});
     defer venv_cache_dir.deinit(.{});
 
     const venv_pex: VenvPex = try .init(pex_path, pex_info.value, pex_info_data);

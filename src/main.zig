@@ -5,6 +5,7 @@ const std = @import("std");
 const Allocator = pexcz.Allocator;
 const InterpreterConstraints = pexcz.InterpreterConstraints;
 const PexInfo = pexcz.PexInfo;
+const VenvPex = pexcz.VenvPex;
 const Zip = pexcz.Zip;
 const c = Zip.c;
 const cache = pexcz.cache;
@@ -163,6 +164,13 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         try joined_python_names.append('"');
     }
 
+    const czex_installed_relpath = try VenvPex.calculateVenvRelpath(
+        allocator,
+        pex_info,
+        .{ .dir_sep = std.fs.path.sep_str_posix },
+    );
+    defer allocator.free(czex_installed_relpath);
+
     //     python = ""  # type: str
     //     python_args = list(pex_info.inject_python_args)  # type: List[str]
     //     if python_shebang:
@@ -273,8 +281,7 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         \\exit 1
     ,
         .{
-            // TODO: XXX: Need to be able to calculate the venv dir relpath.
-            .czex_installed_relpath = "",
+            .czex_installed_relpath = czex_installed_relpath,
             .czex_root = pex_info.pex_root orelse "",
             .python = python,
             .python_args = joined_python_args,
