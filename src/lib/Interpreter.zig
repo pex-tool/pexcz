@@ -518,6 +518,7 @@ pub const Iter = struct {
                                         allocator,
                                         &.{ entry, dir_ent.name },
                                     );
+                                    errdefer allocator.free(candidate);
                                     try candidates.append(.{ .python_exe = candidate, .allocator = allocator });
                                     log.debug("... candidate: {s}", .{candidate});
                                 } else |_| {}

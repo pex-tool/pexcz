@@ -14,7 +14,7 @@ const installed_wheel = @import("installed_wheel.zig");
 pub fn calculateVenvRelpath(
     allocator: std.mem.Allocator,
     pex_info: PexInfo,
-    options: struct { dir_sep: []const u8 = std.fs.path.sep_str },
+    options: struct { dir_sep: []const u8 = std.fs.path.sep_str, interpreter: ?Interpreter = null },
 ) ![]const u8 {
     // TODO: XXX: Account for PEX_PATH
     const encoder = std.fs.base64_encoder;
@@ -25,10 +25,12 @@ pub fn calculateVenvRelpath(
 
     var venv_digest = std.crypto.hash.Sha1.init(.{});
     venv_digest.update(&pex_hash_bytes);
-    // const tag = interp.value.supported_tags[0];
-    // venv_digest.update(tag.python);
-    // venv_digest.update(tag.abi);
-    // venv_digest.update(tag.platform);
+    if (options.interpreter) |interp| {
+        const tag = interp.supported_tags[0];
+        venv_digest.update(tag.python);
+        venv_digest.update(tag.abi);
+        venv_digest.update(tag.platform);
+    }
     const venv_hash_bytes = venv_digest.finalResult();
 
     var encoded_venv_hash_buf: [27]u8 = undefined;

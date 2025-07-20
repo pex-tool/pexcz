@@ -11,11 +11,11 @@ const Layout = enum {
 
     pub fn identify(allocator: std.mem.Allocator, pex: []const u8) !Layout {
         const cwd = std.fs.cwd();
-        if (try fs.isDir(allocator, cwd, pex, true)) {
+        if (try fs.isDir(cwd, pex, .{ .follow_symlinks = allocator })) {
             var pex_dir = try cwd.openDir(pex, .{});
             defer pex_dir.close();
 
-            if (try fs.isDir(allocator, pex_dir, ".bootstrap", true)) {
+            if (try fs.isDir(pex_dir, ".bootstrap", .{ .follow_symlinks = allocator })) {
                 return .loose;
             } else {
                 return .@"packed";

@@ -5,6 +5,8 @@ const Environ = @import("process.zig").Environ;
 const Interpreter = @import("Interpreter.zig");
 const InterpreterContraints = @import("InterpreterConstraints.zig");
 const PexInfo = @import("PexInfo.zig");
+const PexPython = @import("PexPython.zig");
+const PexPythonPath = @import("PexPythonPath.zig");
 const VenvPex = @import("VenvPex.zig");
 const Virtualenv = @import("Virtualenv.zig");
 const Zip = @import("Zip.zig");
@@ -194,61 +196,58 @@ fn setupBoot(
     defer interp.deinit();
     log.debug("Identify interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
 
+    var using_ambient_interpreter = true;
+
     // TODO(John Sirois): XXX: In addition, test the interpreter can be used to resolve a full dep
     //  set from the PEX.
-    if (pex_info.value.interpreter_constraints.len > 0) {
+    const ics = try InterpreterContraints.parse(
+        allocator,
+        pex_info.value.interpreter_constraints,
+    );
+    defer ics.deinit();
+
+    const pex_python = try PexPython.fromEnv(allocator);
+    defer pex_python.deinit();
+
+    const pex_python_path = try PexPythonPath.fromEnv(allocator);
+    defer pex_python_path.deinit(allocator);
+
+    if (!ics.matches(interp.value) or
+        !pex_python.matches(interp.value) or
+        !pex_python_path.contains(interp.value))
+    {
         defer log.debug("Finding a compatible interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
-        const ics = try InterpreterContraints.parse(
+
+        var matching_interp: ?std.json.Parsed(Interpreter) = null;
+        var interpreter_iter = try Interpreter.Iter.fromSearchPath(
             allocator,
-            pex_info.value.interpreter_constraints,
+            .{ .search_path = pex_python_path.entries },
         );
-        defer ics.deinit();
-
-        if (!ics.matches(interp.value)) {
-            var matching_interp: ?std.json.Parsed(Interpreter) = null;
-
-            var search_path: ?[]const []const u8 = null;
-            if (try os.getEnv(allocator, "PEX_PYTHON_PATH")) |pex_python_path| {
-                defer pex_python_path.deinit();
-
-                var path = std.ArrayList([]const u8).init(allocator);
-                errdefer path.deinit();
-
-                var path_iter = std.mem.splitScalar(
-                    u8,
-                    pex_python_path.value,
-                    std.fs.path.delimiter,
-                );
-                while (path_iter.next()) |entry| {
-                    try path.append(try allocator.dupe(u8, entry));
-                }
-                search_path = try path.toOwnedSlice();
+        defer interpreter_iter.deinit();
+        while (interpreter_iter.next()) |python_interp| {
+            if (!std.mem.eql(u8, python_interp.value.prefix, interp.value.prefix) and
+                ics.matches(python_interp.value) and pex_python.matches(interp.value))
+            {
+                matching_interp = python_interp;
+                break;
+            } else {
+                python_interp.deinit();
             }
-            defer if (search_path) |sp| {
-                for (sp) |entry| {
-                    allocator.free(entry);
-                }
-                allocator.free(sp);
-            };
-
-            var interpreter_iter = try Interpreter.Iter.fromSearchPath(
-                allocator,
-                .{ .search_path = search_path },
-            );
-            while (interpreter_iter.next()) |python_interp| {
-                if (ics.matches(python_interp.value)) {
-                    matching_interp = python_interp;
-                    break;
-                }
-            }
-            if (matching_interp == null) {
-                return error.CompatibleInterpreterNotFound;
-            }
-            interp = matching_interp.?;
+        }
+        if (matching_interp) |matching| {
+            using_ambient_interpreter = interp.value.supported_tags[0].eql(matching.value.supported_tags[0]);
+            interp.deinit();
+            interp = matching;
+        } else {
+            return error.CompatibleInterpreterNotFound;
         }
     }
 
-    const venv_relpath = try VenvPex.calculateVenvRelpath(allocator, pex_info.value, .{});
+    const venv_relpath = try VenvPex.calculateVenvRelpath(
+        allocator,
+        pex_info.value,
+        .{ .interpreter = if (!using_ambient_interpreter) interp.value else null },
+    );
     defer allocator.free(venv_relpath);
 
     const pexcz_root = try cache.root(allocator, &temp_dirs, .{});

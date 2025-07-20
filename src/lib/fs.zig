@@ -6,25 +6,53 @@ const os = @import("os.zig");
 const log = std.log.scoped(.fs);
 
 pub fn isDir(
-    allocator: std.mem.Allocator,
     dir: std.fs.Dir,
     sub_path: []const u8,
-    follow_symlinks: bool,
+    options: struct { follow_symlinks: ?std.mem.Allocator = null },
 ) !bool {
     const stat = dir.statFile(sub_path) catch |err| {
         return if (native_os == .windows and err == error.IsDir) true else err;
     };
     if (stat.kind == .sym_link) {
-        if (follow_symlinks) {
+        if (options.follow_symlinks) |allocator| {
             const realpath = try dir.realpathAlloc(allocator, sub_path);
             defer allocator.free(realpath);
 
-            return try isDir(allocator, dir, realpath, false);
+            return try isDir(dir, realpath, .{});
         } else {
             return false;
         }
     }
     return stat.kind == .directory;
+}
+
+pub fn contains(dir: []const u8, path: []const u8) bool {
+    var dir_iter = try std.fs.path.componentIterator(dir);
+    var path_iter = try std.fs.path.componentIterator(path);
+    if (dir_iter.root()) |dir_root| {
+        if (path_iter.root()) |path_root| {
+            if (!std.mem.eql(u8, dir_root, path_root)) return false;
+        } else return false;
+    }
+    while (dir_iter.next()) |dir_component| {
+        if (path_iter.next()) |path_component| {
+            if (!std.mem.eql(u8, dir_component.name, path_component.name)) return false;
+        } else return false;
+    }
+    return path_iter.next() != null;
+}
+
+test "contains" {
+    const dir1 = "dir1";
+    try std.testing.expect(!contains(dir1, dir1));
+    try std.testing.expect(!contains(dir1 ++ std.fs.path.sep_str, dir1));
+    try std.testing.expect(!contains(dir1, dir1 ++ std.fs.path.sep_str));
+    try std.testing.expect(!contains(dir1 ++ std.fs.path.sep_str, dir1 ++ std.fs.path.sep_str));
+
+    const sub_path1 = try std.fs.path.join(std.testing.allocator, &.{ dir1, "path" });
+    defer std.testing.allocator.free(sub_path1);
+    try std.testing.expect(contains(dir1, sub_path1));
+    try std.testing.expect(contains(dir1 ++ std.fs.path.sep_str, sub_path1));
 }
 
 const TempDirRoot = struct {

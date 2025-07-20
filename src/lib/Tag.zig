@@ -61,18 +61,18 @@ pub fn jsonParse(
 }
 
 test "eql" {
-    const first = Self{ .python = "", .abi = "", .platform = ""};
+    const first = Self{ .python = "", .abi = "", .platform = "" };
     try std.testing.expect(std.meta.eql(first, first));
     try std.testing.expect(first.eql(first));
 
-    const second = Self{ .python = "", .abi = "", .platform = ""};
+    const second = Self{ .python = "", .abi = "", .platform = "" };
     try std.testing.expect(std.meta.eql(first, second));
     try std.testing.expect(first.eql(second));
 
     const python = try std.testing.allocator.dupe(u8, "");
     defer std.testing.allocator.free(python);
 
-    const third = Self{ .python = python, .abi = "", .platform = ""};
+    const third = Self{ .python = python, .abi = "", .platform = "" };
     try std.testing.expect(!std.meta.eql(first, third));
     try std.testing.expect(first.eql(third));
 }

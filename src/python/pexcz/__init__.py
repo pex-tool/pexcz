@@ -622,6 +622,8 @@ def mount(
     pex,  # type: str
     python=None,  # type: Optional[str]
 ):
+    # type: (...) -> None
+
     pex_file = to_cstr(pex)
 
     boot_python = python or sys.executable
