@@ -715,7 +715,7 @@ test "Export PEX env var" {
         .argv = &.{ "uv", "run", "python", "test.czex" },
         .cwd = tmp_dir_path,
         .cwd_dir = tmp_dir.dir,
-        .max_output_bytes = 1024 * 1024,
+        .max_output_bytes = 10 * 1024 * 1024,
     });
     defer std.testing.allocator.free(execute_czex_result.stdout);
     defer std.testing.allocator.free(execute_czex_result.stderr);
