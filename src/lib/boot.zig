@@ -213,8 +213,8 @@ fn setupBoot(
     defer pex_python_path.deinit(allocator);
 
     if (!ics.matches(interp.value) or
-        !pex_python.matches(interp.value) or
-        !pex_python_path.contains(interp.value))
+        !try pex_python.matches(interp.value) or
+        !try pex_python_path.contains(interp.value))
     {
         defer log.debug("Finding a compatible interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
 
@@ -226,7 +226,7 @@ fn setupBoot(
         defer interpreter_iter.deinit();
         while (interpreter_iter.next()) |python_interp| {
             if (!std.mem.eql(u8, python_interp.value.prefix, interp.value.prefix) and
-                ics.matches(python_interp.value) and pex_python.matches(interp.value))
+                ics.matches(python_interp.value) and try pex_python.matches(interp.value))
             {
                 matching_interp = python_interp;
                 break;

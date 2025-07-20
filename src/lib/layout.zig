@@ -9,13 +9,13 @@ const Layout = enum {
     @"packed",
     loose,
 
-    pub fn identify(allocator: std.mem.Allocator, pex: []const u8) !Layout {
+    pub fn identify(pex: []const u8) !Layout {
         const cwd = std.fs.cwd();
-        if (try fs.isDir(cwd, pex, .{ .follow_symlinks = allocator })) {
+        if (try fs.isDir(cwd, pex, .{})) {
             var pex_dir = try cwd.openDir(pex, .{});
             defer pex_dir.close();
 
-            if (try fs.isDir(pex_dir, ".bootstrap", .{ .follow_symlinks = allocator })) {
+            if (try fs.isDir(pex_dir, ".bootstrap", .{})) {
                 return .loose;
             } else {
                 return .@"packed";
@@ -90,7 +90,7 @@ test "identify zipapp" {
     const pex = try createPex(tmp_dir, .zipapp);
     defer std.testing.allocator.free(pex);
 
-    try std.testing.expectEqual(.zipapp, Layout.identify(std.testing.allocator, pex));
+    try std.testing.expectEqual(.zipapp, Layout.identify(pex));
 }
 
 test "identify packed" {
@@ -100,7 +100,7 @@ test "identify packed" {
     const pex = try createPex(tmp_dir, .@"packed");
     defer std.testing.allocator.free(pex);
 
-    try std.testing.expectEqual(.@"packed", Layout.identify(std.testing.allocator, pex));
+    try std.testing.expectEqual(.@"packed", Layout.identify(pex));
 }
 
 test "identify loose" {
@@ -110,5 +110,5 @@ test "identify loose" {
     const pex = try createPex(tmp_dir, .loose);
     defer std.testing.allocator.free(pex);
 
-    try std.testing.expectEqual(.loose, Layout.identify(std.testing.allocator, pex));
+    try std.testing.expectEqual(.loose, Layout.identify(pex));
 }

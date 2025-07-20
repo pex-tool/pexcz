@@ -23,10 +23,10 @@ pub fn fromEnv(allocator: std.mem.Allocator) !Self {
     return .{ .value = value };
 }
 
-pub fn matches(self: Self, interpreter: Interpreter) bool {
+pub fn matches(self: Self, interpreter: Interpreter) !bool {
     if (self.value) |python| {
         if (std.fs.path.isAbsolute(python.value)) {
-            return fs.contains(interpreter.prefix, python.value);
+            return try fs.contains(interpreter.prefix, python.value);
         } else {
             // TODO(John Sirois): Handle PEX_PYTHON=python3.8 vs a basename of python or python3
             const basename = std.fs.path.basename(interpreter.path);

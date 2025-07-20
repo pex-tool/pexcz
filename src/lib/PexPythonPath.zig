@@ -34,10 +34,10 @@ pub fn fromEnv(allocator: std.mem.Allocator) !Self {
     }
 }
 
-pub fn contains(self: Self, interpreter: Interpreter) bool {
+pub fn contains(self: Self, interpreter: Interpreter) !bool {
     if (self.entries) |entries| {
         for (entries) |entry| {
-            if (fs.contains(entry, interpreter.path)) return true;
+            if (try fs.contains(entry, interpreter.path)) return true;
         }
     }
     return false;

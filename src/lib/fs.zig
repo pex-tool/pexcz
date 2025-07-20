@@ -8,17 +8,16 @@ const log = std.log.scoped(.fs);
 pub fn isDir(
     dir: std.fs.Dir,
     sub_path: []const u8,
-    options: struct { follow_symlinks: ?std.mem.Allocator = null },
+    options: struct { follow_symlinks: bool = true },
 ) !bool {
     const stat = dir.statFile(sub_path) catch |err| {
-        return if (native_os == .windows and err == error.IsDir) true else err;
+        return native_os == .windows and err == error.IsDir;
     };
     if (stat.kind == .sym_link) {
-        if (options.follow_symlinks) |allocator| {
-            const realpath = try dir.realpathAlloc(allocator, sub_path);
-            defer allocator.free(realpath);
-
-            return try isDir(dir, realpath, .{});
+        if (options.follow_symlinks) {
+            var buffer: [std.fs.max_path_bytes]u8 = undefined;
+            const realpath = try std.fs.realpath(sub_path, &buffer);
+            return try isDir(dir, realpath, options);
         } else {
             return false;
         }
@@ -26,7 +25,8 @@ pub fn isDir(
     return stat.kind == .directory;
 }
 
-pub fn contains(dir: []const u8, path: []const u8) bool {
+pub fn contains(dir: []const u8, path: []const u8) !bool {
+    if (!try isDir(std.fs.cwd(), dir, .{})) return false;
     var dir_iter = try std.fs.path.componentIterator(dir);
     var path_iter = try std.fs.path.componentIterator(path);
     if (dir_iter.root()) |dir_root| {
@@ -44,15 +44,33 @@ pub fn contains(dir: []const u8, path: []const u8) bool {
 
 test "contains" {
     const dir1 = "dir1";
-    try std.testing.expect(!contains(dir1, dir1));
-    try std.testing.expect(!contains(dir1 ++ std.fs.path.sep_str, dir1));
-    try std.testing.expect(!contains(dir1, dir1 ++ std.fs.path.sep_str));
-    try std.testing.expect(!contains(dir1 ++ std.fs.path.sep_str, dir1 ++ std.fs.path.sep_str));
+    try std.testing.expect(!try contains(dir1, dir1));
+    try std.testing.expect(!try contains(dir1 ++ std.fs.path.sep_str, dir1));
+    try std.testing.expect(!try contains(dir1, dir1 ++ std.fs.path.sep_str));
+    try std.testing.expect(
+        !try contains(dir1 ++ std.fs.path.sep_str, dir1 ++ std.fs.path.sep_str),
+    );
 
-    const sub_path1 = try std.fs.path.join(std.testing.allocator, &.{ dir1, "path" });
+    // N.B.: This should fail because "dir1" is not a directory.
+    try std.testing.expect(!try contains(dir1, dir1 ++ std.fs.path.sep_str ++ "path"));
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const tmp_dir_path = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(tmp_dir_path);
+
+    const sub_path1 = try std.fs.path.join(std.testing.allocator, &.{ tmp_dir_path, "path" });
     defer std.testing.allocator.free(sub_path1);
-    try std.testing.expect(contains(dir1, sub_path1));
-    try std.testing.expect(contains(dir1 ++ std.fs.path.sep_str, sub_path1));
+    try std.testing.expect(try contains(tmp_dir_path, sub_path1));
+
+    const tmp_dir_path_trailing_sep = try std.mem.concat(
+        std.testing.allocator,
+        u8,
+        &.{ tmp_dir_path, std.fs.path.sep_str },
+    );
+    defer std.testing.allocator.free(tmp_dir_path_trailing_sep);
+    try std.testing.expect(try contains(tmp_dir_path_trailing_sep, sub_path1));
 }
 
 const TempDirRoot = struct {

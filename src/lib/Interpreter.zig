@@ -678,7 +678,8 @@ test "compare with packaging" {
 }
 
 test "fromSearchPath" {
-    const tmp = std.testing.tmpDir(.{});
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
     const tmp_dir_path = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(tmp_dir_path);
