@@ -419,8 +419,8 @@ pub const Iter = struct {
                         continue;
                     },
                     .sym_link => {
-                        if (std.fs.cwd().realpathAlloc(allocator, entry) catch null) |realpath| {
-                            defer allocator.free(realpath);
+                        var buffer: [std.fs.max_path_bytes]u8 = undefined;
+                        if (std.fs.cwd().realpath(entry, &buffer) catch null) |realpath| {
                             if (std.fs.cwd().statFile(realpath) catch null) |stat| {
                                 if (stat.kind == .file) {
                                     try candidates.append(.{ .python_exe = entry });

@@ -127,8 +127,8 @@ pub fn load(allocator: std.mem.Allocator, venv_path: []const u8, venv_dir: std.f
     }
 
     if (site_packages_relpath == null) {
-        const interpreter_path = try venv_dir.realpathAlloc(allocator, interpreter_relpath.?);
-        defer allocator.free(interpreter_path);
+        var buffer: [std.fs.max_path_bytes]u8 = undefined;
+        const interpreter_path = try venv_dir.realpath(interpreter_relpath.?, &buffer);
 
         const interpreter = try Interpreter.identify(allocator, interpreter_path);
         defer interpreter.deinit();
