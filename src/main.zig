@@ -110,6 +110,7 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         log.err("The PEX at {s} does not contain a PEX-INFO zip entry.", .{pex.path});
         return error.PexInfoNotFound;
     };
+    defer allocator.free(pex_info_data);
 
     const parsed_pex_info = try PexInfo.parse(allocator, pex_info_data);
     defer parsed_pex_info.deinit();
@@ -643,7 +644,7 @@ pub fn main() !u8 {
             }
 
             try inject(allocator, args[i + 1]);
-            std.process.exit(0);
+            break;
         } else {
             result = usage(
                 prog,
