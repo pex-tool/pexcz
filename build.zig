@@ -18,6 +18,26 @@ const supported_targets: []const std.Target.Query = &.{
     .{ .cpu_arch = .x86_64, .os_tag = .windows },
 };
 
+fn build_exe(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    lib: *std.Build.Module,
+    config: *std.Build.Module,
+) *std.Build.Step.Compile {
+    const exe = b.addExecutable(.{
+        .name = "pexcz",
+        .root_module = b.addModule("pexcz", .{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    exe.root_module.addImport("pexcz", lib);
+    exe.root_module.addImport("config", config);
+    return exe;
+}
+
 pub fn build(b: *std.Build) !void {
     const benches = b.option(bool, "benches", "Build benchmarking executables.") orelse false;
 
@@ -107,16 +127,7 @@ pub fn build(b: *std.Build) !void {
         clib_output.dest_sub_path = b.pathJoin(&.{ target_dir, clib_output.dest_sub_path });
         b.getInstallStep().dependOn(&clib_output.step);
 
-        const exe = b.addExecutable(.{
-            .name = "pexcz",
-            .root_module = b.addModule("pexcz", .{
-                .root_source_file = b.path("src/main.zig"),
-                .target = rt,
-                .optimize = optimize,
-            }),
-        });
-        exe.root_module.addImport("pexcz", lib);
-        exe.root_module.addImport("config", config);
+        const exe = build_exe(b, rt, optimize, lib, config);
         exe.step.dependOn(&update_source_files.step);
         var exe_output = b.addInstallArtifact(exe, .{});
         exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, exe_output.dest_sub_path });
@@ -134,6 +145,10 @@ pub fn build(b: *std.Build) !void {
             }
             const run_step = b.step("run", "Run the app");
             run_step.dependOn(&run_cmd.step);
+
+            const exe_check = build_exe(b, rt, optimize, lib, config);
+            const check = b.step("check", "Check if pexcz compiles (used by zls).");
+            check.dependOn(&exe_check.step);
 
             if (benches) {
                 const zip_exe = b.addExecutable(.{
