@@ -5,6 +5,7 @@ const std = @import("std");
 const Allocator = pexcz.Allocator;
 const InterpreterConstraints = pexcz.InterpreterConstraints;
 const PexInfo = pexcz.PexInfo;
+const PythonBinaryName = InterpreterConstraints.PythonBinaryName;
 const VenvPex = pexcz.VenvPex;
 const Zip = pexcz.Zip;
 const c = Zip.c;
@@ -137,30 +138,57 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
     const joined_venv_python_args = try join_quote(allocator, venv_python_args, " ");
     defer allocator.free(joined_venv_python_args);
 
-    const interpreter_constraints = try InterpreterConstraints.parse(
+    // TODO: XXX: Need python names as follows:
+    // 1.) The shebang python, if any.
+    // 2.) The pythons implied by PEX-INFO ICs, if any.
+    // 3.) The pythons implied by pexcz IC == Pex IC == >=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,<[current stable + 1?].
+    var python_binary_names = std.StringArrayHashMap(void).init(allocator);
+    defer python_binary_names.deinit();
+
+    const pex_info_ics = try InterpreterConstraints.parse(
         allocator,
         pex_info.interpreter_constraints,
     );
-    defer interpreter_constraints.deinit();
-
-    const python_binary_names = try interpreter_constraints.calculateApplicableBinaryNames(
+    defer pex_info_ics.deinit();
+    const pex_info_ics_names = try pex_info_ics.calculateApplicableBinaryNames(
         allocator,
     );
     defer {
-        for (python_binary_names) |python_binary_name| {
+        for (pex_info_ics_names) |python_binary_name| {
             python_binary_name.deinit();
         }
-        allocator.free(python_binary_names);
+        allocator.free(pex_info_ics_names);
     }
+
+    const pexcz_ics = try InterpreterConstraints.forPexczRuntime(allocator, .{ .years_ahead = 1 });
+    defer pexcz_ics.deinit();
+    const pexcz_ics_names = try pexcz_ics.calculateApplicableBinaryNames(
+        allocator,
+    );
+    defer {
+        for (pexcz_ics_names) |python_binary_name| {
+            python_binary_name.deinit();
+        }
+        allocator.free(pexcz_ics_names);
+    }
+
+    try python_binary_names.ensureTotalCapacity(pex_info_ics_names.len + pexcz_ics_names.len);
+    for (pex_info_ics_names) |python_binary_name| {
+        try python_binary_names.put(python_binary_name.value, {});
+    }
+    for (pexcz_ics_names) |python_binary_name| {
+        try python_binary_names.put(python_binary_name.value, {});
+    }
+
     var joined_python_names = std.ArrayList(u8).init(allocator);
     defer joined_python_names.deinit();
 
-    for (python_binary_names, 0..) |python_binary_name, index| {
+    for (python_binary_names.keys(), 0..) |python_binary_name, index| {
         if (index > 0) {
             try joined_python_names.appendSlice(" \\\n");
         }
         try joined_python_names.append('"');
-        try joined_python_names.appendSlice(python_binary_name.value);
+        try joined_python_names.appendSlice(python_binary_name);
         try joined_python_names.append('"');
     }
 

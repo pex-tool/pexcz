@@ -244,6 +244,19 @@ pub fn compatibleVersionsIter(
     return .{ .constraints = self.constraints, .max_minor = max_minor };
 }
 
+pub fn forPexczRuntime(
+    allocator: std.mem.Allocator,
+    options: struct { years_ahead: u8 = 0 },
+) !Self {
+    const interpreter_constraint = try std.fmt.allocPrint(
+        allocator,
+        ">=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,<3.{d}",
+        .{maxMinor() + options.years_ahead},
+    );
+    defer allocator.free(interpreter_constraint);
+    return Self.parse(allocator, &.{interpreter_constraint});
+}
+
 pub const PythonBinaryName = struct {
     value: []const u8,
     allocator: ?std.mem.Allocator = null,
