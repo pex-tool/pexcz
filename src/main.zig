@@ -5,7 +5,7 @@ const std = @import("std");
 const Allocator = pexcz.Allocator;
 const InterpreterConstraints = pexcz.InterpreterConstraints;
 const PexInfo = pexcz.PexInfo;
-const PythonBinaryName = InterpreterConstraints.PythonBinaryName;
+const PythonBinarySpec = InterpreterConstraints.PythonBinarySpec;
 const VenvPex = pexcz.VenvPex;
 const Zip = pexcz.Zip;
 const c = Zip.c;
@@ -144,41 +144,46 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
     // 2.) The pythons implied by PEX-INFO ICs, if any.
     // 3.) The pythons implied by pexcz IC == Pex IC == >=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,<[current stable + 1?].
     var python_binary_names = std.StringArrayHashMap(void).init(allocator);
-    defer python_binary_names.deinit();
+    defer {
+        for (python_binary_names.keys()) |name| {
+            allocator.free(name);
+        }
+        python_binary_names.deinit();
+    }
 
     const pex_info_ics = try InterpreterConstraints.parse(
         allocator,
         pex_info.interpreter_constraints,
     );
     defer pex_info_ics.deinit();
-    const pex_info_ics_names = try pex_info_ics.calculateApplicableBinaryNames(
-        allocator,
-    );
-    defer {
-        for (pex_info_ics_names) |python_binary_name| {
-            python_binary_name.deinit();
-        }
-        allocator.free(pex_info_ics_names);
-    }
+    const pex_info_ics_specs = try pex_info_ics.calculateApplicableBinarySpecs(allocator);
+    defer allocator.free(pex_info_ics_specs);
 
     const pexcz_ics = try InterpreterConstraints.forPexczRuntime(allocator, .{ .years_ahead = 1 });
     defer pexcz_ics.deinit();
-    const pexcz_ics_names = try pexcz_ics.calculateApplicableBinaryNames(
-        allocator,
-    );
-    defer {
-        for (pexcz_ics_names) |python_binary_name| {
-            python_binary_name.deinit();
-        }
-        allocator.free(pexcz_ics_names);
-    }
+    const pexcz_ics_specs = try pexcz_ics.calculateApplicableBinarySpecs(allocator);
+    defer allocator.free(pexcz_ics_specs);
 
-    try python_binary_names.ensureTotalCapacity(pex_info_ics_names.len + pexcz_ics_names.len);
-    for (pex_info_ics_names) |python_binary_name| {
-        try python_binary_names.put(python_binary_name.value, {});
+    const all_specs: []const []const PythonBinarySpec = &.{ pex_info_ics_specs, pexcz_ics_specs };
+    try python_binary_names.ensureTotalCapacity(pex_info_ics_specs.len + pexcz_ics_specs.len);
+    var buf: [PythonBinarySpec.name_buf_len]u8 = undefined;
+    inline for (&.{ .two, .one }) |components| {
+        for (all_specs) |specs| {
+            for (specs) |python_binary_spec| {
+                const name = try python_binary_spec.versionedBinaryName(&buf, components);
+                if (!python_binary_names.contains(name)) {
+                    try python_binary_names.put(try allocator.dupe(u8, name), {});
+                }
+            }
+        }
     }
-    for (pexcz_ics_names) |python_binary_name| {
-        try python_binary_names.put(python_binary_name.value, {});
+    for (all_specs) |specs| {
+        for (specs) |python_binary_spec| {
+            const name = python_binary_spec.impl.binaryName();
+            if (!python_binary_names.contains(name)) {
+                try python_binary_names.put(try allocator.dupe(u8, name), {});
+            }
+        }
     }
 
     var joined_python_names = std.ArrayList(u8).init(allocator);

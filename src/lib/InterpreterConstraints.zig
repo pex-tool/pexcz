@@ -257,37 +257,18 @@ pub fn forPexczRuntime(
     return Self.parse(allocator, &.{interpreter_constraint});
 }
 
-pub const PythonBinaryName = struct {
-    value: []const u8,
-    allocator: ?std.mem.Allocator = null,
-
-    pub fn deinit(self: PythonBinaryName) void {
-        if (self.allocator) |alloc| alloc.free(self.value);
-    }
-
-    pub fn format(
-        self: PythonBinaryName,
-        fmt: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        try writer.writeAll(self.value);
-    }
-};
-
-const PythonBinarySpec = struct {
+pub const PythonBinarySpec = struct {
     impl: PythonImplementation,
     major: u8,
     minor: u8,
 
-    const name_buf_len = std.fs.max_name_bytes;
+    pub const name_buf_len = std.fs.max_name_bytes;
 
     inline fn binaryName(self: PythonBinarySpec) []const u8 {
         return self.impl.binaryName();
     }
 
-    fn versionedBinaryName(
+    pub fn versionedBinaryName(
         self: PythonBinarySpec,
         buf: *[name_buf_len]u8,
         version_components: enum { one, two },
@@ -307,12 +288,12 @@ const PythonBinarySpec = struct {
     }
 };
 
-pub fn calculateApplicableBinaryNames(
+pub fn calculateApplicableBinarySpecs(
     self: Self,
     allocator: std.mem.Allocator,
-) ![]const PythonBinaryName {
+) ![]const PythonBinarySpec {
     var python_binary_specs = std.ArrayList(PythonBinarySpec).init(allocator);
-    defer python_binary_specs.deinit();
+    errdefer python_binary_specs.deinit();
 
     var compatible_versions_iter = self.compatibleVersionsIter(.{});
     while (compatible_versions_iter.next()) |python_version| {
@@ -346,40 +327,7 @@ pub fn calculateApplicableBinaryNames(
     }.lessThan;
     std.mem.sort(PythonBinarySpec, python_binary_specs.items, {}, lessThan);
 
-    var names = std.ArrayList(PythonBinaryName).init(allocator);
-    errdefer {
-        for (names.items) |name| {
-            name.deinit();
-        }
-        names.deinit();
-    }
-
-    var buf: [PythonBinarySpec.name_buf_len]u8 = undefined;
-    for (python_binary_specs.items) |python_binary_spec| {
-        const name = try python_binary_spec.versionedBinaryName(&buf, .two);
-        try names.append(.{ .value = try allocator.dupe(u8, name), .allocator = allocator });
-    }
-
-    var seen = std.StringHashMap(void).init(allocator);
-    defer seen.deinit();
-
-    for (python_binary_specs.items) |python_binary_spec| {
-        const name = try python_binary_spec.versionedBinaryName(&buf, .one);
-        if (!seen.contains(name)) {
-            const binary_name = try allocator.dupe(u8, name);
-            try seen.put(binary_name, {});
-            try names.append(.{ .value = binary_name, .allocator = allocator });
-        }
-    }
-    for (python_binary_specs.items) |python_binary_spec| {
-        const name = python_binary_spec.binaryName();
-        if (!seen.contains(name)) {
-            try seen.put(name, {});
-            try names.append(.{ .value = name });
-        }
-    }
-
-    return try names.toOwnedSlice();
+    return python_binary_specs.toOwnedSlice();
 }
 
 fn interpreter(
@@ -641,65 +589,49 @@ test "Compatible versions ORed" {
     );
 }
 
-test "calculateApplicableBinaryNames impl pinned" {
+test "calculateApplicableBinarySpecs impl pinned" {
     const interpreter_constraints = try Self.parse(std.testing.allocator, &.{"CPython~=3.9"});
     defer interpreter_constraints.deinit();
 
-    const actual_names = try interpreter_constraints.calculateApplicableBinaryNames(
+    const actual_specs = try interpreter_constraints.calculateApplicableBinarySpecs(
         std.testing.allocator,
     );
-    defer {
-        for (actual_names) |name| {
-            name.deinit();
-        }
-        std.testing.allocator.free(actual_names);
-    }
+    defer std.testing.allocator.free(actual_specs);
 
-    const expected_names: []const []const u8 = &.{
-        "python3.14",
-        "python3.13",
-        "python3.12",
-        "python3.11",
-        "python3.10",
-        "python3.9",
-        "python3",
-        "python",
+    const expected_specs: []const PythonBinarySpec = &.{
+        .{ .impl = .CPython, .major = 3, .minor = 14 },
+        .{ .impl = .CPython, .major = 3, .minor = 13 },
+        .{ .impl = .CPython, .major = 3, .minor = 12 },
+        .{ .impl = .CPython, .major = 3, .minor = 11 },
+        .{ .impl = .CPython, .major = 3, .minor = 10 },
+        .{ .impl = .CPython, .major = 3, .minor = 9 },
     };
-    for (expected_names, actual_names) |expected, actual| {
-        try std.testing.expectEqualStrings(expected, actual.value);
+    for (expected_specs, actual_specs) |expected, actual| {
+        try std.testing.expectEqualDeep(expected, actual);
     }
 }
 
-test "calculateApplicableBinaryNames no impl" {
+test "calculateApplicableBinarySpecs no impl" {
     const interpreter_constraints = try Self.parse(std.testing.allocator, &.{"~=3.11"});
     defer interpreter_constraints.deinit();
 
-    const actual_names = try interpreter_constraints.calculateApplicableBinaryNames(
+    const actual_specs = try interpreter_constraints.calculateApplicableBinarySpecs(
         std.testing.allocator,
     );
-    defer {
-        for (actual_names) |name| {
-            name.deinit();
-        }
-        std.testing.allocator.free(actual_names);
-    }
+    defer std.testing.allocator.free(actual_specs);
 
-    const expected_names: []const []const u8 = &.{
-        "python3.14",
-        "python3.13",
-        "python3.12",
-        "python3.11",
-        "pypy3.14",
-        "pypy3.13",
-        "pypy3.12",
-        "pypy3.11",
-        "python3",
-        "pypy3",
-        "python",
-        "pypy",
+    const expected_specs: []const PythonBinarySpec = &.{
+        .{ .impl = .CPython, .major = 3, .minor = 14 },
+        .{ .impl = .CPython, .major = 3, .minor = 13 },
+        .{ .impl = .CPython, .major = 3, .minor = 12 },
+        .{ .impl = .CPython, .major = 3, .minor = 11 },
+        .{ .impl = .PyPy, .major = 3, .minor = 14 },
+        .{ .impl = .PyPy, .major = 3, .minor = 13 },
+        .{ .impl = .PyPy, .major = 3, .minor = 12 },
+        .{ .impl = .PyPy, .major = 3, .minor = 11 },
     };
-    for (expected_names, actual_names) |expected, actual| {
-        try std.testing.expectEqualStrings(expected, actual.value);
+    for (expected_specs, actual_specs) |expected, actual| {
+        try std.testing.expectEqualDeep(expected, actual);
     }
 }
 
