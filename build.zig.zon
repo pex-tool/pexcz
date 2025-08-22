@@ -24,8 +24,8 @@
             .hash = "zstd-1.5.7-KEItkJ8vAAC5_rRlKmLflYQ-eKXbAIQBWZNmmJtS18q0",
         },
         .zeit = .{
-            .url = "git+https://github.com/rockorager/zeit#5429d2a108053d9ae9de00035dc1749b926b7649",
-            .hash = "zeit-0.6.0-5I6bk697AgAjrCWnmInbXTZ98avC1JtELxiYd-YU9cc2",
+            .url = "git+https://github.com/rockorager/zeit#991f38266f86535e68431675e8feb84efa1f011b",
+            .hash = "zeit-0.6.0-5I6bk0t7AgCPM_cY1DoqJB2pnmG7MMtpdO5IxNpryJDy",
         },
     },
 
