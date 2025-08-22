@@ -67,7 +67,7 @@ pub fn build(b: *std.Build) !void {
             .root_source_file = b.path("tools/fetch_virtualenv.zig"),
             .target = b.graph.host,
             .optimize = optimize,
-        })
+        }),
     });
     const tool_step = b.addRunArtifact(tool);
     // TODO(John Sirois): Plumb --sha arg from a build option.
