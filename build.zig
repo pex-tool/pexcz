@@ -27,7 +27,7 @@ fn build_exe(
 ) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "pexcz",
-        .root_module = b.addModule("pexcz", .{
+        .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
@@ -63,7 +63,7 @@ pub fn build(b: *std.Build) !void {
 
     const tool = b.addExecutable(.{
         .name = "fetch_virtualenv",
-        .root_module = b.addModule("fetch_virtualenv", .{
+        .root_module = b.createModule(.{
             .root_source_file = b.path("tools/fetch_virtualenv.zig"),
             .target = b.graph.host,
             .optimize = optimize,
@@ -106,9 +106,10 @@ pub fn build(b: *std.Build) !void {
         lib.addImport("zeit", zeit);
         lib.linkLibrary(libzip_dep);
 
-        const clib = b.addSharedLibrary(.{
+        const clib = b.addLibrary(.{
             .name = "pexcz",
-            .root_module = b.addModule("pexcz", .{
+            .linkage = .dynamic,
+            .root_module = b.createModule(.{
                 .root_source_file = b.path("src/clib.zig"),
                 .target = rt,
                 .optimize = optimize,
@@ -156,7 +157,7 @@ pub fn build(b: *std.Build) !void {
             if (benches) {
                 const zip_exe = b.addExecutable(.{
                     .name = "zipopen",
-                    .root_module = b.addModule("zipopen", .{
+                    .root_module = b.createModule(.{
                         .root_source_file = b.path("bench/zipopen.zig"),
                         .target = rt,
                         .optimize = optimize,
@@ -179,10 +180,12 @@ pub fn build(b: *std.Build) !void {
         "For named tests, only run those with names matching the filter.",
     ) orelse &.{};
     const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/lib.zig"),
-        .target = cur_tgt,
-        .optimize = optimize,
         .filters = test_filters,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/lib.zig"),
+            .target = cur_tgt,
+            .optimize = optimize,
+        }),
     });
     lib_unit_tests.root_module.addAnonymousImport(
         "virtualenv.py",
@@ -195,10 +198,12 @@ pub fn build(b: *std.Build) !void {
     const exe_test_options = b.addOptions();
     exe_test_options.addOptionPath("pexcz_exe", pexcz_emitted_bin.?);
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = cur_tgt,
-        .optimize = optimize,
         .filters = test_filters,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = cur_tgt,
+            .optimize = optimize,
+        }),
     });
     exe_unit_tests.root_module.addImport("options", exe_test_options.createModule());
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
@@ -253,10 +258,14 @@ fn build_libzip(
             .ZIP_UINT64_T = "uint64_t",
         },
     );
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "zip",
-        .target = target,
-        .optimize = optimize,
+        .linkage = .static,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
     });
     const zip_lib_dir = upstream.path("lib");
     const flags: []const []const u8 = res: {
