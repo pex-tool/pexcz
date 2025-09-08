@@ -161,10 +161,10 @@ pub fn build(b: *std.Build) !void {
                         .root_source_file = b.path("bench/zipopen.zig"),
                         .target = rt,
                         .optimize = optimize,
+                        .link_libc = true,
                     }),
                 });
                 zip_exe.root_module.addImport("pexcz", lib);
-                zip_exe.linkLibC();
                 const zip_exe_output = b.addInstallArtifact(zip_exe, .{});
                 zip_exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, zip_exe_output.dest_sub_path });
                 b.getInstallStep().dependOn(&zip_exe_output.step);
@@ -446,8 +446,6 @@ fn build_libzip(
         .@"exclude-compressors-greedy-and-up" = true,
     });
     lib.linkLibrary(zstd_dependency.artifact("zstd"));
-
-    lib.linkLibC();
 
     const tool = b.addExecutable(.{
         .name = "generate_zip_error_strings",
