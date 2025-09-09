@@ -62,7 +62,6 @@ const windows_x86_64: std.Target.Query = .{
     .os_tag = .windows,
 };
 
-// TODO: XXX: Uncomment musl variants. There are currently issues building libzip / zstd / zlib.
 const supported_targets: []const std.Target.Query = &.{
     linux_aarch64_gnu,
     linux_aarch64_musl,
@@ -76,28 +75,6 @@ const supported_targets: []const std.Target.Query = &.{
     macos_x86_64,
     windows_aarch64,
     windows_x86_64,
-};
-
-// TODO(John Sirois): Merge All and All2.
-//  For unknown reasons at present, not all targets can be built in the same
-//  invocation: https://github.com/pex-tool/pexcz/issues/33
-
-const all_targets_group1: []const std.Target.Query = &.{
-    linux_aarch64_gnu,
-    linux_arm32hf,
-    linux_ppc64le,
-    linux_s390x,
-    linux_x86_64_gnu,
-    macos_aarch64,
-    macos_x86_64,
-    windows_aarch64,
-    windows_x86_64,
-};
-
-const all_targets_group2: []const std.Target.Query = &.{
-    linux_aarch64_musl,
-    linux_riscv64,
-    linux_x86_64_musl,
 };
 
 fn build_exe(
@@ -125,7 +102,6 @@ pub fn build(b: *std.Build) !void {
 
     const Targets = enum {
         All,
-        All2,
         Current,
     };
 
@@ -140,8 +116,7 @@ pub fn build(b: *std.Build) !void {
     const cur_tgt_query = b.standardTargetOptionsQueryOnly(.{ .whitelist = supported_targets });
     const cur_tgt = b.resolveTargetQuery(cur_tgt_query);
     const target_queries = switch (requested_tgts) {
-        .All => all_targets_group1,
-        .All2 => all_targets_group2,
+        .All => supported_targets,
         .Current => &.{cur_tgt_query},
     };
 

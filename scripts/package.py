@@ -16,7 +16,6 @@ from typing import Any
 PEXCZ_DIST_DIR = Path("dist").resolve()
 
 PEXCZ_BUILD_TARGETS = "All"
-PEXCZ_BUILD_TARGETS2 = "All2"
 PEXCZ_RELEASE_MODE = "small"
 
 
@@ -32,9 +31,6 @@ def describe_file(path: Path) -> tuple[str, int]:
 
 
 def package_pexcz(exe_dir: Path) -> None:
-    # TODO(John Sirois): Merge All and All2 (PEXCZ_BUILD_TARGETS & PEXCZ_BUILD_TARGETS2).
-    #  For unknown reasons at present, not all targets can be built in the same
-    #  invocation: https://github.com/pex-tool/pexcz/issues/33
     subprocess.run(
         args=[
             sys.executable,
@@ -42,19 +38,6 @@ def package_pexcz(exe_dir: Path) -> None:
             "ziglang",
             "build",
             f"-Dtargets={PEXCZ_BUILD_TARGETS}",
-            f"--release={PEXCZ_RELEASE_MODE}",
-            "--prefix-exe-dir",
-            exe_dir,
-        ],
-        check=True,
-    )
-    subprocess.run(
-        args=[
-            sys.executable,
-            "-m",
-            "ziglang",
-            "build",
-            f"-Dtargets={PEXCZ_BUILD_TARGETS2}",
             f"--release={PEXCZ_RELEASE_MODE}",
             "--prefix-exe-dir",
             exe_dir,
