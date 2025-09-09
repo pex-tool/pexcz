@@ -10,6 +10,9 @@ const supported_targets: []const std.Target.Query = &.{
     .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
     // .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
+    // TODO: XXX: Uncomment riscv64. This currently builds on its own, but leads to a compiler infra
+    // crash when building in parallel with certain combinations of the other targets.
+    // .{ .cpu_arch = .riscv64, .os_tag = .linux, .abi = .gnu },
     // Macos targets:
     .{ .cpu_arch = .aarch64, .os_tag = .macos },
     .{ .cpu_arch = .x86_64, .os_tag = .macos },
