@@ -1,5 +1,6 @@
 const std = @import("std");
 
+// Linux targets:
 const linux_aarch64_gnu: std.Target.Query = .{
     .cpu_arch = .aarch64,
     .os_tag = .linux,
@@ -10,11 +11,6 @@ const linux_aarch64_musl: std.Target.Query = .{
     .os_tag = .linux,
     .abi = .musl,
 };
-const linux_s390x: std.Target.Query = .{
-    .cpu_arch = .s390x,
-    .os_tag = .linux,
-    .abi = .gnu,
-};
 const linux_arm32hf: std.Target.Query = .{
     .cpu_arch = .arm,
     .os_tag = .linux,
@@ -22,6 +18,16 @@ const linux_arm32hf: std.Target.Query = .{
 };
 const linux_ppc64le: std.Target.Query = .{
     .cpu_arch = .powerpc64le,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const linux_riscv64: std.Target.Query = .{
+    .cpu_arch = .riscv64,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const linux_s390x: std.Target.Query = .{
+    .cpu_arch = .s390x,
     .os_tag = .linux,
     .abi = .gnu,
 };
@@ -35,11 +41,8 @@ const linux_x86_64_musl: std.Target.Query = .{
     .os_tag = .linux,
     .abi = .musl,
 };
-const linux_riscv64: std.Target.Query = .{
-    .cpu_arch = .riscv64,
-    .os_tag = .linux,
-    .abi = .gnu,
-};
+
+// Macos targets:
 const macos_aarch64: std.Target.Query = .{
     .cpu_arch = .aarch64,
     .os_tag = .macos,
@@ -48,6 +51,8 @@ const macos_x86_64: std.Target.Query = .{
     .cpu_arch = .x86_64,
     .os_tag = .macos,
 };
+
+// Windows targets:
 const windows_aarch64: std.Target.Query = .{
     .cpu_arch = .aarch64,
     .os_tag = .windows,
@@ -59,39 +64,33 @@ const windows_x86_64: std.Target.Query = .{
 
 // TODO: XXX: Uncomment musl variants. There are currently issues building libzip / zstd / zlib.
 const supported_targets: []const std.Target.Query = &.{
-    // Linux targets:
     linux_aarch64_gnu,
     // linux_aarch64_musl,
-    linux_s390x,
     linux_arm32hf,
     linux_ppc64le,
     linux_riscv64,
+    linux_s390x,
     linux_x86_64_gnu,
     // linux_x86_64_musl,
-    // Macos targets:
     macos_aarch64,
     macos_x86_64,
-    // Windows targets:
     windows_aarch64,
     windows_x86_64,
 };
 
 const all_targets: []const std.Target.Query = &.{
-    // Linux targets:
     linux_aarch64_gnu,
     // linux_aarch64_musl,
-    linux_s390x,
     linux_arm32hf,
     linux_ppc64le,
-    linux_x86_64_gnu,
-    // linux_x86_64_musl,
     // TODO: XXX: Uncomment riscv64. This currently builds on its own, but leads to a compiler infra
     // crash when building in parallel with certain combinations of the other targets.
     // linux_riscv64,
-    // Macos targets:
+    linux_s390x,
+    linux_x86_64_gnu,
+    // linux_x86_64_musl,
     macos_aarch64,
     macos_x86_64,
-    // Windows targets:
     windows_aarch64,
     windows_x86_64,
 };
