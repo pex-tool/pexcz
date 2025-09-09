@@ -1,24 +1,101 @@
 const std = @import("std");
 
+const linux_aarch64_gnu: std.Target.Query = .{
+    .cpu_arch = .aarch64,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const linux_aarch64_musl: std.Target.Query = .{
+    .cpu_arch = .aarch64,
+    .os_tag = .linux,
+    .abi = .musl,
+};
+const linux_s390x: std.Target.Query = .{
+    .cpu_arch = .s390x,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const linux_arm32hf: std.Target.Query = .{
+    .cpu_arch = .arm,
+    .os_tag = .linux,
+    .abi = .gnueabihf,
+};
+const linux_ppc64le: std.Target.Query = .{
+    .cpu_arch = .powerpc64le,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const linux_x86_64_gnu: std.Target.Query = .{
+    .cpu_arch = .x86_64,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const linux_x86_64_musl: std.Target.Query = .{
+    .cpu_arch = .x86_64,
+    .os_tag = .linux,
+    .abi = .musl,
+};
+const linux_riscv64: std.Target.Query = .{
+    .cpu_arch = .riscv64,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const macos_aarch64: std.Target.Query = .{
+    .cpu_arch = .aarch64,
+    .os_tag = .macos,
+};
+const macos_x86_64: std.Target.Query = .{
+    .cpu_arch = .x86_64,
+    .os_tag = .macos,
+};
+const windows_aarch64: std.Target.Query = .{
+    .cpu_arch = .aarch64,
+    .os_tag = .windows,
+};
+const windows_x86_64: std.Target.Query = .{
+    .cpu_arch = .x86_64,
+    .os_tag = .windows,
+};
+
 // TODO: XXX: Uncomment musl variants. There are currently issues building libzip / zstd / zlib.
 const supported_targets: []const std.Target.Query = &.{
     // Linux targets:
-    .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
-    // .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
-    .{ .cpu_arch = .s390x, .os_tag = .linux, .abi = .gnu },
-    .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .gnueabihf },
-    .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .gnu },
-    .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
-    // .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
+    linux_aarch64_gnu,
+    // linux_aarch64_musl,
+    linux_s390x,
+    linux_arm32hf,
+    linux_ppc64le,
+    linux_x86_64_gnu,
+    // linux_x86_64_musl,
     // TODO: XXX: Uncomment riscv64. This currently builds on its own, but leads to a compiler infra
     // crash when building in parallel with certain combinations of the other targets.
-    // .{ .cpu_arch = .riscv64, .os_tag = .linux, .abi = .gnu },
+    linux_riscv64,
     // Macos targets:
-    .{ .cpu_arch = .aarch64, .os_tag = .macos },
-    .{ .cpu_arch = .x86_64, .os_tag = .macos },
+    macos_aarch64,
+    macos_x86_64,
     // Windows targets:
-    .{ .cpu_arch = .aarch64, .os_tag = .windows },
-    .{ .cpu_arch = .x86_64, .os_tag = .windows },
+    windows_aarch64,
+    windows_x86_64,
+};
+
+const all_targets: []const std.Target.Query = &.{
+    // Linux targets:
+    linux_aarch64_gnu,
+    // linux_aarch64_musl,
+    linux_s390x,
+    linux_arm32hf,
+    linux_ppc64le,
+    linux_x86_64_gnu,
+    // linux_x86_64_musl,
+    // TODO: XXX: Uncomment riscv64. This currently builds on its own, but leads to a compiler infra
+    // crash when building in parallel with certain combinations of the other targets.
+    // linux_riscv64,
+    // Macos targets:
+    macos_aarch64,
+    macos_x86_64,
+    // Windows targets:
+    windows_aarch64,
+    windows_x86_64,
 };
 
 fn build_exe(
@@ -60,7 +137,7 @@ pub fn build(b: *std.Build) !void {
     const cur_tgt_query = b.standardTargetOptionsQueryOnly(.{ .whitelist = supported_targets });
     const cur_tgt = b.resolveTargetQuery(cur_tgt_query);
     const target_queries = switch (requested_tgts) {
-        .All => supported_targets,
+        .All => all_targets,
         .Current => &.{cur_tgt_query},
     };
 

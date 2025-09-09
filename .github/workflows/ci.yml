@@ -36,7 +36,12 @@ jobs:
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@v6
       - name: Cross Build
-        run: zig build -Dtargets=All --release=small
+        run: |
+          zig build -Dtargets=All --release=small
+
+          # N.B.: For unknown reasons at present, riscv64-linux-gnu cannot be built in the same zig
+          # build invocation as all the rest.
+          zig build -Dtarget=riscv64-linux-gnu --release=small
   check-zig-fmt:
     name: zig fmt --check .
     needs: org-check

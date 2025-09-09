@@ -44,6 +44,21 @@ def package_pexcz(exe_dir: Path) -> None:
         ],
         check=True,
     )
+    # N.B.: For unknown reasons at present, riscv64-linux-gnu cannot be built in the same zig
+    # build invocation as all the rest.
+    subprocess.run(
+        args=[
+            sys.executable,
+            "-m",
+            "ziglang",
+            "build",
+            "-Dtarget=riscv64-linux-gnu",
+            f"--release={PEXCZ_RELEASE_MODE}",
+            "--prefix-exe-dir",
+            exe_dir,
+        ],
+        check=True,
+    )
     hash_table: dict[Path, tuple[str, int]] = {}
     for root, dirs, files in os.walk(exe_dir, topdown=False):
         root_dir = Path(root)
