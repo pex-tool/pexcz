@@ -65,11 +65,9 @@ const supported_targets: []const std.Target.Query = &.{
     linux_s390x,
     linux_arm32hf,
     linux_ppc64le,
+    linux_riscv64,
     linux_x86_64_gnu,
     // linux_x86_64_musl,
-    // TODO: XXX: Uncomment riscv64. This currently builds on its own, but leads to a compiler infra
-    // crash when building in parallel with certain combinations of the other targets.
-    linux_riscv64,
     // Macos targets:
     macos_aarch64,
     macos_x86_64,
