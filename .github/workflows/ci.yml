@@ -39,9 +39,10 @@ jobs:
         run: |
           zig build -Dtargets=All --release=small
 
-          # N.B.: For unknown reasons at present, riscv64-linux-gnu cannot be built in the same zig
-          # build invocation as all the rest.
-          zig build -Dtarget=riscv64-linux-gnu --release=small
+          # TODO(John Sirois): Merge All and All2.
+          #  For unknown reasons at present, not all targets can be built in the same
+          #  invocation: https://github.com/pex-tool/pexcz/issues/33
+          zig build -Dtargets=All2 --release=small
   check-zig-fmt:
     name: zig fmt --check .
     needs: org-check

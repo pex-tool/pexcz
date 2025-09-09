@@ -65,34 +65,39 @@ const windows_x86_64: std.Target.Query = .{
 // TODO: XXX: Uncomment musl variants. There are currently issues building libzip / zstd / zlib.
 const supported_targets: []const std.Target.Query = &.{
     linux_aarch64_gnu,
-    // linux_aarch64_musl,
+    linux_aarch64_musl,
     linux_arm32hf,
     linux_ppc64le,
     linux_riscv64,
     linux_s390x,
     linux_x86_64_gnu,
-    // linux_x86_64_musl,
+    linux_x86_64_musl,
     macos_aarch64,
     macos_x86_64,
     windows_aarch64,
     windows_x86_64,
 };
 
-const all_targets: []const std.Target.Query = &.{
+// TODO(John Sirois): Merge All and All2.
+//  For unknown reasons at present, not all targets can be built in the same
+//  invocation: https://github.com/pex-tool/pexcz/issues/33
+
+const all_targets_group1: []const std.Target.Query = &.{
     linux_aarch64_gnu,
-    // linux_aarch64_musl,
     linux_arm32hf,
     linux_ppc64le,
-    // TODO: XXX: Uncomment riscv64. This currently builds on its own, but leads to a compiler infra
-    // crash when building in parallel with certain combinations of the other targets.
-    // linux_riscv64,
     linux_s390x,
     linux_x86_64_gnu,
-    // linux_x86_64_musl,
     macos_aarch64,
     macos_x86_64,
     windows_aarch64,
     windows_x86_64,
+};
+
+const all_targets_group2: []const std.Target.Query = &.{
+    linux_aarch64_musl,
+    linux_riscv64,
+    linux_x86_64_musl,
 };
 
 fn build_exe(
@@ -120,6 +125,7 @@ pub fn build(b: *std.Build) !void {
 
     const Targets = enum {
         All,
+        All2,
         Current,
     };
 
@@ -134,7 +140,8 @@ pub fn build(b: *std.Build) !void {
     const cur_tgt_query = b.standardTargetOptionsQueryOnly(.{ .whitelist = supported_targets });
     const cur_tgt = b.resolveTargetQuery(cur_tgt_query);
     const target_queries = switch (requested_tgts) {
-        .All => all_targets,
+        .All => all_targets_group1,
+        .All2 => all_targets_group2,
         .Current => &.{cur_tgt_query},
     };
 
@@ -335,6 +342,7 @@ fn build_libzip(
             .ZIP_UINT64_T = "uint64_t",
         },
     );
+    // const pic: ?bool = if (target.result.abi.isMusl()) true else null;
     const lib = b.addLibrary(.{
         .name = "zip",
         .linkage = .static,
@@ -342,6 +350,7 @@ fn build_libzip(
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .pic = true,
         }),
     });
     const zip_lib_dir = upstream.path("lib");
@@ -508,15 +517,56 @@ fn build_libzip(
     lib.addConfigHeader(config);
     lib.addConfigHeader(zip_config);
 
-    const zlib_dep = b.dependency("zlib", .{
-        .target = target,
-        .optimize = optimize,
+    const zlib_dep = b.dependency("zlib", .{});
+    const zlib = b.addLibrary(.{
+        .name = "z",
+        .linkage = .static,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .pic = true,
+        }),
     });
-    lib.linkLibrary(zlib_dep.artifact("z"));
+    zlib.addCSourceFiles(.{
+        .root = zlib_dep.path(""),
+        .files = &.{
+            "adler32.c",
+            "crc32.c",
+            "deflate.c",
+            "infback.c",
+            "inffast.c",
+            "inflate.c",
+            "inftrees.c",
+            "trees.c",
+            "zutil.c",
+            "compress.c",
+            "uncompr.c",
+            "gzclose.c",
+            "gzlib.c",
+            "gzread.c",
+            "gzwrite.c",
+        },
+        .flags = &.{
+            "-DHAVE_SYS_TYPES_H",
+            "-DHAVE_STDINT_H",
+            "-DHAVE_STDDEF_H",
+            "-DZ_HAVE_UNISTD_H",
+        },
+    });
+    zlib.installHeadersDirectory(zlib_dep.path(""), "", .{
+        .include_extensions = &.{
+            "zconf.h",
+            "zlib.h",
+        },
+    });
+    lib.linkLibrary(zlib);
 
     const zstd_dependency = b.dependency("zstd", .{
         .target = target,
         .optimize = optimize,
+        .linkage = .static,
+        .pie = true,
         .minify = true,
         .dictbuilder = false,
         .@"exclude-compressors-dfast-and-up" = true,
