@@ -342,7 +342,6 @@ fn build_libzip(
             .ZIP_UINT64_T = "uint64_t",
         },
     );
-    // const pic: ?bool = if (target.result.abi.isMusl()) true else null;
     const lib = b.addLibrary(.{
         .name = "zip",
         .linkage = .static,
