@@ -1,7 +1,7 @@
 // See: https://github.com/ziglang/zig/blob/master/doc/build.zig.zon.md
 .{
     .name = .pexcz,
-    .version = "0.0.2",
+    .version = "0.0.3",
     .fingerprint = 0x97ea894d71a986ac,
 
     .minimum_zig_version = "0.14.1",
@@ -16,12 +16,16 @@
             .hash = "N-V-__8AAGRUYABUylxlPgK8vgvvxVLufaQalXyPsIKYJRMw",
         },
         .zlib = .{
-            .url = "git+https://github.com/allyourcodebase/zlib#6c72830882690c1eb2567a537525c3f432c1da50",
-            .hash = "zlib-1.3.1-ZZQ7lVgMAACwO4nUUd8GLhsuQ5JQq_VAhlEiENJTUv6h",
+            .url = "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz",
+            .hash = "N-V-__8AAB0eQwD-0MdOEBmz7intriBReIsIDNlukNVoNu6o",
         },
         .zstd = .{
             .url = "git+https://github.com/allyourcodebase/zstd#01327d49cbc56dc24c20a167bb0055d7fc23de84",
             .hash = "zstd-1.5.7-KEItkJ8vAAC5_rRlKmLflYQ-eKXbAIQBWZNmmJtS18q0",
+        },
+        .zeit = .{
+            .url = "git+https://github.com/rockorager/zeit#991f38266f86535e68431675e8feb84efa1f011b",
+            .hash = "zeit-0.6.0-5I6bk0t7AgCPM_cY1DoqJB2pnmG7MMtpdO5IxNpryJDy",
         },
     },
 

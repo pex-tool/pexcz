@@ -1,22 +1,101 @@
 const std = @import("std");
 
-// TODO: XXX: Uncomment musl variants. There are currently issues building libzip / zstd / zlib.
-const supported_targets: []const std.Target.Query = &.{
-    // Linux targets:
-    .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
-    // .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
-    .{ .cpu_arch = .s390x, .os_tag = .linux, .abi = .gnu },
-    .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .gnueabihf },
-    .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .gnu },
-    .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
-    // .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
-    // Macos targets:
-    .{ .cpu_arch = .aarch64, .os_tag = .macos },
-    .{ .cpu_arch = .x86_64, .os_tag = .macos },
-    // Windows targets:
-    .{ .cpu_arch = .aarch64, .os_tag = .windows },
-    .{ .cpu_arch = .x86_64, .os_tag = .windows },
+// Linux targets:
+const linux_aarch64_gnu: std.Target.Query = .{
+    .cpu_arch = .aarch64,
+    .os_tag = .linux,
+    .abi = .gnu,
 };
+const linux_aarch64_musl: std.Target.Query = .{
+    .cpu_arch = .aarch64,
+    .os_tag = .linux,
+    .abi = .musl,
+};
+const linux_arm32hf: std.Target.Query = .{
+    .cpu_arch = .arm,
+    .os_tag = .linux,
+    .abi = .gnueabihf,
+};
+const linux_ppc64le: std.Target.Query = .{
+    .cpu_arch = .powerpc64le,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const linux_riscv64: std.Target.Query = .{
+    .cpu_arch = .riscv64,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const linux_s390x: std.Target.Query = .{
+    .cpu_arch = .s390x,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const linux_x86_64_gnu: std.Target.Query = .{
+    .cpu_arch = .x86_64,
+    .os_tag = .linux,
+    .abi = .gnu,
+};
+const linux_x86_64_musl: std.Target.Query = .{
+    .cpu_arch = .x86_64,
+    .os_tag = .linux,
+    .abi = .musl,
+};
+
+// Macos targets:
+const macos_aarch64: std.Target.Query = .{
+    .cpu_arch = .aarch64,
+    .os_tag = .macos,
+};
+const macos_x86_64: std.Target.Query = .{
+    .cpu_arch = .x86_64,
+    .os_tag = .macos,
+};
+
+// Windows targets:
+const windows_aarch64: std.Target.Query = .{
+    .cpu_arch = .aarch64,
+    .os_tag = .windows,
+};
+const windows_x86_64: std.Target.Query = .{
+    .cpu_arch = .x86_64,
+    .os_tag = .windows,
+};
+
+const supported_targets: []const std.Target.Query = &.{
+    linux_aarch64_gnu,
+    linux_aarch64_musl,
+    linux_arm32hf,
+    linux_ppc64le,
+    linux_riscv64,
+    linux_s390x,
+    linux_x86_64_gnu,
+    linux_x86_64_musl,
+    macos_aarch64,
+    macos_x86_64,
+    windows_aarch64,
+    windows_x86_64,
+};
+
+fn build_exe(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    lib: *std.Build.Module,
+    config: *std.Build.Module,
+) *std.Build.Step.Compile {
+    const exe = b.addExecutable(.{
+        .name = "pexcz",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    exe.root_module.addImport("pexcz", lib);
+    exe.root_module.addImport("config", config);
+    return exe;
+}
 
 pub fn build(b: *std.Build) !void {
     const benches = b.option(bool, "benches", "Build benchmarking executables.") orelse false;
@@ -43,14 +122,18 @@ pub fn build(b: *std.Build) !void {
 
     const tool = b.addExecutable(.{
         .name = "fetch_virtualenv",
-        .root_source_file = b.path("tools/fetch_virtualenv.zig"),
-        .target = b.graph.host,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/fetch_virtualenv.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
     const tool_step = b.addRunArtifact(tool);
     // TODO(John Sirois): Plumb --sha arg from a build option.
     const virtualenv_py_resource = tool_step.addOutputFileArg("virtualenv.py");
 
     const known_folders = b.dependency("known_folders", .{}).module("known-folders");
+    const zeit = b.dependency("zeit", .{}).module("zeit");
 
     var target_dirs = try std.ArrayList([]const u8).initCapacity(b.allocator, target_queries.len);
     defer target_dirs.deinit();
@@ -79,11 +162,13 @@ pub fn build(b: *std.Build) !void {
         });
         lib.addAnonymousImport("virtualenv.py", .{ .root_source_file = virtualenv_py_resource });
         lib.addImport("known-folders", known_folders);
+        lib.addImport("zeit", zeit);
         lib.linkLibrary(libzip_dep);
 
-        const clib = b.addSharedLibrary(.{
+        const clib = b.addLibrary(.{
             .name = "pexcz",
-            .root_module = b.addModule("pexcz", .{
+            .linkage = .dynamic,
+            .root_module = b.createModule(.{
                 .root_source_file = b.path("src/clib.zig"),
                 .target = rt,
                 .optimize = optimize,
@@ -105,16 +190,7 @@ pub fn build(b: *std.Build) !void {
         clib_output.dest_sub_path = b.pathJoin(&.{ target_dir, clib_output.dest_sub_path });
         b.getInstallStep().dependOn(&clib_output.step);
 
-        const exe = b.addExecutable(.{
-            .name = "pexcz",
-            .root_module = b.addModule("pexcz", .{
-                .root_source_file = b.path("src/main.zig"),
-                .target = rt,
-                .optimize = optimize,
-            }),
-        });
-        exe.root_module.addImport("pexcz", lib);
-        exe.root_module.addImport("config", config);
+        const exe = build_exe(b, rt, optimize, lib, config);
         exe.step.dependOn(&update_source_files.step);
         var exe_output = b.addInstallArtifact(exe, .{});
         exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, exe_output.dest_sub_path });
@@ -133,17 +209,21 @@ pub fn build(b: *std.Build) !void {
             const run_step = b.step("run", "Run the app");
             run_step.dependOn(&run_cmd.step);
 
+            const exe_check = build_exe(b, rt, optimize, lib, config);
+            const check = b.step("check", "Check if pexcz compiles (used by zls).");
+            check.dependOn(&exe_check.step);
+
             if (benches) {
                 const zip_exe = b.addExecutable(.{
                     .name = "zipopen",
-                    .root_module = b.addModule("zipopen", .{
+                    .root_module = b.createModule(.{
                         .root_source_file = b.path("bench/zipopen.zig"),
                         .target = rt,
                         .optimize = optimize,
+                        .link_libc = true,
                     }),
                 });
                 zip_exe.root_module.addImport("pexcz", lib);
-                zip_exe.linkLibC();
                 const zip_exe_output = b.addInstallArtifact(zip_exe, .{});
                 zip_exe_output.dest_sub_path = b.pathJoin(&.{ target_dir, zip_exe_output.dest_sub_path });
                 b.getInstallStep().dependOn(&zip_exe_output.step);
@@ -159,25 +239,30 @@ pub fn build(b: *std.Build) !void {
         "For named tests, only run those with names matching the filter.",
     ) orelse &.{};
     const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/lib.zig"),
-        .target = cur_tgt,
-        .optimize = optimize,
         .filters = test_filters,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/lib.zig"),
+            .target = cur_tgt,
+            .optimize = optimize,
+        }),
     });
     lib_unit_tests.root_module.addAnonymousImport(
         "virtualenv.py",
         .{ .root_source_file = virtualenv_py_resource },
     );
     lib_unit_tests.root_module.addImport("known-folders", known_folders);
+    lib_unit_tests.root_module.addImport("zeit", zeit);
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const exe_test_options = b.addOptions();
     exe_test_options.addOptionPath("pexcz_exe", pexcz_emitted_bin.?);
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = cur_tgt,
-        .optimize = optimize,
         .filters = test_filters,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = cur_tgt,
+            .optimize = optimize,
+        }),
     });
     exe_unit_tests.root_module.addImport("options", exe_test_options.createModule());
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
@@ -232,10 +317,15 @@ fn build_libzip(
             .ZIP_UINT64_T = "uint64_t",
         },
     );
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "zip",
-        .target = target,
-        .optimize = optimize,
+        .linkage = .static,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .pic = true,
+        }),
     });
     const zip_lib_dir = upstream.path("lib");
     const flags: []const []const u8 = res: {
@@ -401,23 +491,62 @@ fn build_libzip(
     lib.addConfigHeader(config);
     lib.addConfigHeader(zip_config);
 
-    const zlib_dep = b.dependency("zlib", .{
-        .target = target,
-        .optimize = optimize,
+    const zlib_dep = b.dependency("zlib", .{});
+    const zlib = b.addLibrary(.{
+        .name = "z",
+        .linkage = .static,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .pic = true,
+        }),
     });
-    lib.linkLibrary(zlib_dep.artifact("z"));
+    zlib.addCSourceFiles(.{
+        .root = zlib_dep.path(""),
+        .files = &.{
+            "adler32.c",
+            "crc32.c",
+            "deflate.c",
+            "infback.c",
+            "inffast.c",
+            "inflate.c",
+            "inftrees.c",
+            "trees.c",
+            "zutil.c",
+            "compress.c",
+            "uncompr.c",
+            "gzclose.c",
+            "gzlib.c",
+            "gzread.c",
+            "gzwrite.c",
+        },
+        .flags = &.{
+            "-DHAVE_SYS_TYPES_H",
+            "-DHAVE_STDINT_H",
+            "-DHAVE_STDDEF_H",
+            "-DZ_HAVE_UNISTD_H",
+        },
+    });
+    zlib.installHeadersDirectory(zlib_dep.path(""), "", .{
+        .include_extensions = &.{
+            "zconf.h",
+            "zlib.h",
+        },
+    });
+    lib.linkLibrary(zlib);
 
     const zstd_dependency = b.dependency("zstd", .{
         .target = target,
         .optimize = optimize,
+        .linkage = .static,
+        .pie = true,
         .minify = true,
         .dictbuilder = false,
         .@"exclude-compressors-dfast-and-up" = true,
         .@"exclude-compressors-greedy-and-up" = true,
     });
     lib.linkLibrary(zstd_dependency.artifact("zstd"));
-
-    lib.linkLibC();
 
     const tool = b.addExecutable(.{
         .name = "generate_zip_error_strings",

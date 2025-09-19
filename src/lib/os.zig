@@ -14,7 +14,7 @@ pub const Value = struct {
     }
 };
 
-pub fn getenv(allocator: std.mem.Allocator, name: []const u8) !?Value {
+pub fn getEnv(allocator: std.mem.Allocator, name: []const u8) !?Value {
     if (native_os == .windows) {
         const w_key = try std.unicode.wtf8ToWtf16LeAllocZ(allocator, name);
         defer allocator.free(w_key);

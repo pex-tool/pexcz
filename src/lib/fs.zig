@@ -1,9 +1,77 @@
 const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
-const getenv = @import("os.zig").getenv;
+const os = @import("os.zig");
 
 const log = std.log.scoped(.fs);
+
+pub fn isDir(
+    dir: std.fs.Dir,
+    sub_path: []const u8,
+    options: struct { follow_symlinks: bool = true },
+) !bool {
+    const stat = dir.statFile(sub_path) catch |err| {
+        return native_os == .windows and err == error.IsDir;
+    };
+    if (stat.kind == .sym_link) {
+        if (options.follow_symlinks) {
+            var buffer: [std.fs.max_path_bytes]u8 = undefined;
+            const realpath = try std.fs.realpath(sub_path, &buffer);
+            return try isDir(dir, realpath, options);
+        } else {
+            return false;
+        }
+    }
+    return stat.kind == .directory;
+}
+
+pub fn contains(dir: []const u8, path: []const u8) !bool {
+    if (!try isDir(std.fs.cwd(), dir, .{})) return false;
+    var dir_iter = try std.fs.path.componentIterator(dir);
+    var path_iter = try std.fs.path.componentIterator(path);
+    if (dir_iter.root()) |dir_root| {
+        if (path_iter.root()) |path_root| {
+            if (!std.mem.eql(u8, dir_root, path_root)) return false;
+        } else return false;
+    }
+    while (dir_iter.next()) |dir_component| {
+        if (path_iter.next()) |path_component| {
+            if (!std.mem.eql(u8, dir_component.name, path_component.name)) return false;
+        } else return false;
+    }
+    return path_iter.next() != null;
+}
+
+test "contains" {
+    const dir1 = "dir1";
+    try std.testing.expect(!try contains(dir1, dir1));
+    try std.testing.expect(!try contains(dir1 ++ std.fs.path.sep_str, dir1));
+    try std.testing.expect(!try contains(dir1, dir1 ++ std.fs.path.sep_str));
+    try std.testing.expect(
+        !try contains(dir1 ++ std.fs.path.sep_str, dir1 ++ std.fs.path.sep_str),
+    );
+
+    // N.B.: This should fail because "dir1" is not a directory.
+    try std.testing.expect(!try contains(dir1, dir1 ++ std.fs.path.sep_str ++ "path"));
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const tmp_dir_path = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(tmp_dir_path);
+
+    const sub_path1 = try std.fs.path.join(std.testing.allocator, &.{ tmp_dir_path, "path" });
+    defer std.testing.allocator.free(sub_path1);
+    try std.testing.expect(try contains(tmp_dir_path, sub_path1));
+
+    const tmp_dir_path_trailing_sep = try std.mem.concat(
+        std.testing.allocator,
+        u8,
+        &.{ tmp_dir_path, std.fs.path.sep_str },
+    );
+    defer std.testing.allocator.free(tmp_dir_path_trailing_sep);
+    try std.testing.expect(try contains(tmp_dir_path_trailing_sep, sub_path1));
+}
 
 const TempDirRoot = struct {
     path: []const u8,
@@ -41,7 +109,7 @@ fn tempDirRoot(allocator: std.mem.Allocator) !TempDirRoot {
     // The result of this search is cached.
     //
     for ([_][]const u8{ "TMPDIR", "TEMP", "TMP" }) |key| {
-        if (try getenv(allocator, key)) |tmp| {
+        if (try os.getEnv(allocator, key)) |tmp| {
             return .{ .path = tmp.value, .allocator = tmp.allocator };
         }
     }

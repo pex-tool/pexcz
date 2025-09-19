@@ -2,13 +2,17 @@ const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
 const Environ = @import("process.zig").Environ;
-const Interpreter = @import("interpreter.zig").Interpreter;
+const Interpreter = @import("Interpreter.zig");
+const InterpreterContraints = @import("InterpreterConstraints.zig");
+const PexInfo = @import("PexInfo.zig");
+const PexPython = @import("PexPython.zig");
+const PexPythonPath = @import("PexPythonPath.zig");
 const VenvPex = @import("VenvPex.zig");
 const Virtualenv = @import("Virtualenv.zig");
 const Zip = @import("Zip.zig");
 const cache = @import("cache.zig");
 const fs = @import("fs.zig");
-const PexInfo = @import("PexInfo.zig");
+const os = @import("os.zig");
 
 const log = std.log.scoped(.boot);
 
@@ -167,10 +171,6 @@ fn setupBoot(
 
     var timer = try std.time.Timer.start();
 
-    const interpreter = try Interpreter.identify(allocator, std.mem.span(python_exe_path));
-    defer interpreter.deinit();
-    log.debug("Identify interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
-
     var temp_dirs = fs.TempDirs.init(allocator);
     defer temp_dirs.deinit();
 
@@ -192,29 +192,68 @@ fn setupBoot(
     defer pex_info.deinit();
     log.debug("Parse PEX-INFO took {d:.3}µs.", .{timer.lap() / 1_000});
 
-    const encoder = std.fs.base64_encoder;
-    const pex_hash_bytes = @as(
-        [20]u8,
-        @bitCast(try std.fmt.parseUnsigned(u160, pex_info.value.pex_hash, 16)),
+    var interp = try Interpreter.identify(allocator, std.mem.span(python_exe_path));
+    defer interp.deinit();
+    log.debug("Identify interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
+
+    var using_ambient_interpreter = true;
+
+    // TODO(John Sirois): XXX: In addition, test the interpreter can be used to resolve a full dep
+    //  set from the PEX.
+    const ics = try InterpreterContraints.parse(
+        allocator,
+        pex_info.value.interpreter_constraints,
     );
+    defer ics.deinit();
 
-    // TODO: XXX: Account for PEX_PATH
-    var venv_digest = std.crypto.hash.Sha1.init(.{});
-    venv_digest.update(&pex_hash_bytes);
-    const tag = interpreter.value.supported_tags[0];
-    venv_digest.update(tag.python);
-    venv_digest.update(tag.abi);
-    venv_digest.update(tag.platform);
-    const venv_hash_bytes = venv_digest.finalResult();
+    const pex_python = try PexPython.fromEnv(allocator);
+    defer pex_python.deinit();
 
-    var encoded_venv_hash_buf: [27]u8 = undefined;
-    std.debug.assert(encoded_venv_hash_buf.len == encoder.calcSize(venv_hash_bytes.len));
-    const pex_hash = encoder.encode(&encoded_venv_hash_buf, &venv_hash_bytes);
+    const pex_python_path = try PexPythonPath.fromEnv(allocator);
+    defer pex_python_path.deinit(allocator);
+
+    if (!ics.matches(interp.value) or
+        !try pex_python.matches(interp.value) or
+        !try pex_python_path.contains(interp.value))
+    {
+        defer log.debug("Finding a compatible interpreter took {d:.3}µs.", .{timer.lap() / 1_000});
+
+        var matching_interp: ?std.json.Parsed(Interpreter) = null;
+        var interpreter_iter = try Interpreter.Iter.fromSearchPath(
+            allocator,
+            .{ .search_path = pex_python_path.entries },
+        );
+        defer interpreter_iter.deinit();
+        while (interpreter_iter.next()) |python_interp| {
+            if (!std.mem.eql(u8, python_interp.value.prefix, interp.value.prefix) and
+                ics.matches(python_interp.value) and try pex_python.matches(interp.value))
+            {
+                matching_interp = python_interp;
+                break;
+            } else {
+                python_interp.deinit();
+            }
+        }
+        if (matching_interp) |matching| {
+            using_ambient_interpreter = interp.value.supported_tags[0].eql(matching.value.supported_tags[0]);
+            interp.deinit();
+            interp = matching;
+        } else {
+            return error.CompatibleInterpreterNotFound;
+        }
+    }
+
+    const venv_relpath = try VenvPex.calculateVenvRelpath(
+        allocator,
+        pex_info.value,
+        .{ .interpreter = if (!using_ambient_interpreter) interp.value else null },
+    );
+    defer allocator.free(venv_relpath);
 
     const pexcz_root = try cache.root(allocator, &temp_dirs, .{});
     defer pexcz_root.deinit(.{});
 
-    var venv_cache_dir = try pexcz_root.join(&.{ "venvs", "0", pex_hash });
+    var venv_cache_dir = try pexcz_root.join(&.{venv_relpath});
     defer venv_cache_dir.deinit(.{});
 
     const venv_pex: VenvPex = try .init(pex_path, pex_info.value, pex_info_data);
@@ -244,7 +283,7 @@ fn setupBoot(
         .allocator = allocator,
         .venv_pex = venv_pex,
         .dest_path = venv_cache_dir.path,
-        .interpreter = interpreter.value,
+        .interpreter = interp.value,
     };
     var dir = try venv_cache_dir.createAtomic(Fn, Fn.install, func, .{});
     defer dir.close();

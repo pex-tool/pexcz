@@ -189,7 +189,7 @@ pub fn run(
     }
 }
 
-pub fn checkCall(result: RunResult) !void {
+fn checkResult(result: RunResult) !void {
     switch (result.term) {
         .Exited => |code| {
             if (code != 0) return error.CalledProcessError;
@@ -199,11 +199,19 @@ pub fn checkCall(result: RunResult) !void {
 }
 
 pub fn CheckCall(printErrorFn: anytype) type {
+    if (@TypeOf(printErrorFn) == void) {
+        return struct {
+            pub fn parse(result: RunResult) !void {
+                return checkResult(result);
+            }
+            pub fn printError() void {}
+        };
+    }
     const ErrorFnParamType = FuncParamType(printErrorFn, 0, void);
     if (ErrorFnParamType == void) {
         return struct {
             pub fn parse(result: RunResult) !void {
-                return checkCall(result);
+                return checkResult(result);
             }
             pub fn printError() void {
                 printErrorFn();
@@ -212,7 +220,7 @@ pub fn CheckCall(printErrorFn: anytype) type {
     } else {
         return struct {
             pub fn parse(result: RunResult) !void {
-                return checkCall(result);
+                return checkResult(result);
             }
             pub fn printError(args: ErrorFnParamType) void {
                 printErrorFn(args);
@@ -221,14 +229,33 @@ pub fn CheckCall(printErrorFn: anytype) type {
     }
 }
 
+pub fn checkCall(
+    allocator: std.mem.Allocator,
+    argv: []const []const u8,
+    args: Args(CheckCall({})),
+) !void {
+    return run(allocator, argv, CheckCall({}), args);
+}
+
 pub fn CheckOutput(printErrorFn: anytype) type {
+    if (@TypeOf(printErrorFn) == void) {
+        return struct {
+            pub const owns_stdout = true;
+            pub const owns_stderr = false;
+            pub fn parse(result: RunResult) ![]const u8 {
+                try checkResult(result);
+                return result.stdout;
+            }
+            pub fn printError() void {}
+        };
+    }
     const ErrorFnParamType = FuncParamType(printErrorFn, 0, void);
     if (ErrorFnParamType == void) {
         return struct {
             pub const owns_stdout = true;
             pub const owns_stderr = false;
             pub fn parse(result: RunResult) ![]const u8 {
-                try checkCall(result);
+                try checkResult(result);
                 return result.stdout;
             }
             pub fn printError() void {
@@ -240,7 +267,7 @@ pub fn CheckOutput(printErrorFn: anytype) type {
             pub const owns_stdout = true;
             pub const owns_stderr = false;
             pub fn parse(result: RunResult) ![]const u8 {
-                try checkCall(result);
+                try checkResult(result);
                 return result.stdout;
             }
             pub fn printError(args: ErrorFnParamType) void {
@@ -248,4 +275,27 @@ pub fn CheckOutput(printErrorFn: anytype) type {
             }
         };
     }
+}
+
+pub fn checkOutput(
+    allocator: std.mem.Allocator,
+    argv: []const []const u8,
+    args: Args(CheckOutput({})),
+) ![]const u8 {
+    return run(allocator, argv, CheckOutput({}), args);
+}
+
+test "checkCall" {
+    try run(std.testing.allocator, &.{ "uv", "--version" }, CheckCall({}), .{});
+    try checkCall(std.testing.allocator, &.{ "uv", "--version" }, .{});
+}
+
+test "checkOutput" {
+    const version1 = try run(std.testing.allocator, &.{ "uv", "--version" }, CheckOutput({}), .{});
+    defer std.testing.allocator.free(version1);
+
+    const version2 = try checkOutput(std.testing.allocator, &.{ "uv", "--version" }, .{});
+    defer std.testing.allocator.free(version2);
+
+    try std.testing.expectEqualStrings(version1, version2);
 }

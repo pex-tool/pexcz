@@ -9,7 +9,7 @@ backend-path = ["build-system"]
 
 [project]
 name = "pexcz"
-version = "0.0.2"
+version = "0.0.3"
 description = "Native Pex."
 readme = "README.md"
 authors = [
@@ -116,8 +116,10 @@ accepts-extra-args = true
 [tool.dev-cmd.tasks]
 test = [["zig-test", "pytest"]]
 
-[tool.dev-cmd.tasks.checks]
+[tool.dev-cmd.tasks.checks_lt313]
+name = "checks"
 description = "Runs all development checks, including auto-formatting code."
+when = "python_version < '3.13'"
 steps = [[
     # Zig formatting and testing are independent of Python checks so we run these as two parallel
     # groups.
@@ -131,6 +133,26 @@ steps = [[
         # Parallelizing the type checks and test is safe (they don't modify files), and it nets a
         # ~3x speedup over running them all serially.
         ["type-check-py{2.7,3.{5..13}}", "pytest"],
+    ]
+]]
+
+[tool.dev-cmd.tasks.checks_gte313]
+name = "checks"
+description = "Runs all development checks, including auto-formatting code."
+when = "python_version >= '3.13'"
+steps = [[
+    # Zig formatting and testing are independent of Python checks so we run these as two parallel
+    # groups.
+    [
+        "zig-fmt",
+        "zig-test"
+    ],
+    [
+        "fmt",
+        "lint",
+        # Parallelizing the type checks and test is safe (they don't modify files), and it nets a
+        # ~3x speedup over running them all serially.
+        ["type-check-py3.{5..13}", "pytest"],
     ]
 ]]
 

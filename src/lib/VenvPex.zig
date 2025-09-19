@@ -1,7 +1,7 @@
 const native_os = @import("builtin").target.os.tag;
 const std = @import("std");
 
-const Interpreter = @import("interpreter.zig").Interpreter;
+const Interpreter = @import("Interpreter.zig");
 const PexInfo = @import("PexInfo.zig");
 const Tag = @import("Tag.zig");
 const VENV_PEX_PY = @embedFile("venv_pex.py");
@@ -10,6 +10,34 @@ const Virtualenv = @import("Virtualenv.zig");
 const WheelInfo = @import("WheelInfo.zig");
 const Zip = @import("Zip.zig");
 const installed_wheel = @import("installed_wheel.zig");
+
+pub fn calculateVenvRelpath(
+    allocator: std.mem.Allocator,
+    pex_info: PexInfo,
+    options: struct { dir_sep: []const u8 = std.fs.path.sep_str, interpreter: ?Interpreter = null },
+) ![]const u8 {
+    // TODO: XXX: Account for PEX_PATH
+    const encoder = std.fs.base64_encoder;
+    const pex_hash_bytes = @as(
+        [20]u8,
+        @bitCast(try std.fmt.parseUnsigned(u160, pex_info.pex_hash, 16)),
+    );
+
+    var venv_digest = std.crypto.hash.Sha1.init(.{});
+    venv_digest.update(&pex_hash_bytes);
+    if (options.interpreter) |interp| {
+        const tag = interp.supported_tags[0];
+        venv_digest.update(tag.python);
+        venv_digest.update(tag.abi);
+        venv_digest.update(tag.platform);
+    }
+    const venv_hash_bytes = venv_digest.finalResult();
+
+    var encoded_venv_hash_buf: [27]u8 = undefined;
+    std.debug.assert(encoded_venv_hash_buf.len == encoder.calcSize(venv_hash_bytes.len));
+    const pex_hash = encoder.encode(&encoded_venv_hash_buf, &venv_hash_bytes);
+    return try std.mem.join(allocator, options.dir_sep, &.{ "venvs", "0", pex_hash });
+}
 
 pex_path: [*c]const u8,
 pex_info: PexInfo,
