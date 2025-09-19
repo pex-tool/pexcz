@@ -4,11 +4,11 @@ const ProjectName = @import("lib/ProjectName.zig");
 const Specifier = @import("lib/Specifier.zig");
 const Version = @import("lib/Version.zig");
 const WheelInfo = @import("lib/WheelInfo.zig");
-const Interpreter = @import("lib/Interpreter.zig");
 const layout = @import("lib/layout.zig");
 
 pub const Allocator = @import("lib/heap.zig").Allocator;
 pub const Environ = @import("lib/process.zig").Environ;
+pub const Interpreter = @import("lib/Interpreter.zig");
 pub const InterpreterConstraints = @import("lib/InterpreterConstraints.zig");
 pub const PexInfo = @import("lib/PexInfo.zig");
 pub const VenvPex = @import("lib/VenvPex.zig");

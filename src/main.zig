@@ -3,6 +3,7 @@ const native_os = builtin.target.os.tag;
 const std = @import("std");
 
 const Allocator = pexcz.Allocator;
+const Interpreter = pexcz.Interpreter;
 const InterpreterConstraints = pexcz.InterpreterConstraints;
 const PexInfo = pexcz.PexInfo;
 const PythonBinarySpec = InterpreterConstraints.PythonBinarySpec;
@@ -156,6 +157,26 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         pex_info.interpreter_constraints,
     );
     defer pex_info_ics.deinit();
+    var interp_iter = try Interpreter.Iter.fromSearchPath(allocator, .{});
+    const current_interpreter_specs: []const PythonBinarySpec = res: {
+        while (interp_iter.next()) |interpreter| {
+            if (pex_info_ics.matches(interpreter.value)) {
+                if (std.meta.stringToEnum(
+                    InterpreterConstraints.PythonImplementation,
+                    interpreter.value.marker_env.platform_python_implementation,
+                )) |impl| {
+                    break :res &.{
+                        .{
+                            .impl = impl,
+                            .major = interpreter.value.version.major,
+                            .minor = interpreter.value.version.minor,
+                        },
+                    };
+                }
+            }
+        }
+        break :res &.{};
+    };
     const pex_info_ics_specs = try pex_info_ics.calculateApplicableBinarySpecs(allocator);
     defer allocator.free(pex_info_ics_specs);
 
@@ -164,8 +185,14 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
     const pexcz_ics_specs = try pexcz_ics.calculateApplicableBinarySpecs(allocator);
     defer allocator.free(pexcz_ics_specs);
 
-    const all_specs: []const []const PythonBinarySpec = &.{ pex_info_ics_specs, pexcz_ics_specs };
-    try python_binary_names.ensureTotalCapacity(pex_info_ics_specs.len + pexcz_ics_specs.len);
+    const all_specs: []const []const PythonBinarySpec = &.{
+        current_interpreter_specs,
+        pex_info_ics_specs,
+        pexcz_ics_specs,
+    };
+    try python_binary_names.ensureTotalCapacity(
+        current_interpreter_specs.len + pex_info_ics_specs.len + pexcz_ics_specs.len,
+    );
     var buf: [PythonBinarySpec.name_buf_len]u8 = undefined;
     inline for (&.{ .two, .one }) |components| {
         for (all_specs) |specs| {
@@ -265,13 +292,14 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         \\CZEX_ROOT="${{CZEX_ROOT:-${{DEFAULT_CZEX_ROOT}}}}"
         \\INSTALLED_CZEX="${{CZEX_ROOT}}/{[czex_installed_relpath]s}"
         \\
-        \\if [ -x "${{INSTALLED_CZEX}}" -a -z "${{PEX_TOOLS:-}}" ]; then
+        \\if [ -x "${{INSTALLED_CZEX}}/pex" -a -z "${{PEX_TOOLS:-}}" ]; then
         \\    # We're a --venv execution mode PEX installed under the PEX_ROOT and the venv
         \\    # interpreter to use is embedded in the shebang of our venv pex script; so just
         \\    # execute that script directly... except if we're needing to execute PEX code, in
         \\    # the form of the tools.
         \\    export PEX="$0"
-        \\    exec "${{INSTALLED_CZEX}}/bin/python" ${{VENV_PYTHON_ARGS}} "${{INSTALLED_CZEX}}" \
+        \\    exec "${{INSTALLED_CZEX}}/bin/python" ${{VENV_PYTHON_ARGS}} \
+        \\        "${{INSTALLED_CZEX}}/pex" \
         \\        "$@"
         \\fi
         \\
