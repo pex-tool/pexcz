@@ -157,10 +157,18 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         pex_info.interpreter_constraints,
     );
     defer pex_info_ics.deinit();
+    const pex_info_ics_specs = try pex_info_ics.calculateApplicableBinarySpecs(allocator);
+    defer allocator.free(pex_info_ics_specs);
+
+    const pexcz_ics = try InterpreterConstraints.forPexczRuntime(allocator, .{ .years_ahead = 1 });
+    defer pexcz_ics.deinit();
+    const pexcz_ics_specs = try pexcz_ics.calculateApplicableBinarySpecs(allocator);
+    defer allocator.free(pexcz_ics_specs);
+
     var interp_iter = try Interpreter.Iter.fromSearchPath(allocator, .{});
     const current_interpreter_specs: []const PythonBinarySpec = res: {
         while (interp_iter.next()) |interpreter| {
-            if (pex_info_ics.matches(interpreter.value)) {
+            if (pex_info_ics.matches(interpreter.value) and pexcz_ics.matches(interpreter.value)) {
                 if (std.meta.stringToEnum(
                     InterpreterConstraints.PythonImplementation,
                     interpreter.value.marker_env.platform_python_implementation,
@@ -177,13 +185,6 @@ fn createShBootPrefix(allocator: std.mem.Allocator, pex: *Zip) ![]const u8 {
         }
         break :res &.{};
     };
-    const pex_info_ics_specs = try pex_info_ics.calculateApplicableBinarySpecs(allocator);
-    defer allocator.free(pex_info_ics_specs);
-
-    const pexcz_ics = try InterpreterConstraints.forPexczRuntime(allocator, .{ .years_ahead = 1 });
-    defer pexcz_ics.deinit();
-    const pexcz_ics_specs = try pexcz_ics.calculateApplicableBinarySpecs(allocator);
-    defer allocator.free(pexcz_ics_specs);
 
     const all_specs: []const []const PythonBinarySpec = &.{
         current_interpreter_specs,
